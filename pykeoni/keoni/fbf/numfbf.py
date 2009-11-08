@@ -14,9 +14,10 @@ import re
 
 fbf_encodings = dict(
     char1 = 'c', char = 'c',
-    int1 = 'b',
-    int2 = 'h',
-    int4 = 'l', integer4 = 'l',
+    int1 = 'b', uint1 = 'B',
+    int2 = 'h', uint2 = 'H',
+    int4 = 'l', integer4 = 'l', uint4 = 'L',
+    int8 = 'q', uint8 = 'Q',
     real4 = 'f',
     real8 = 'd',
     complex8 = 'F',
