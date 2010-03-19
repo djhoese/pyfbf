@@ -1,5 +1,5 @@
 """
-$Id: FBF.py,v 1.29 2007/08/02 23:57:41 rayg Exp $
+$Id$
 Flat Binary Format python utilities
 parallel to TOOLS/Mfiles/fbf*.m
 """

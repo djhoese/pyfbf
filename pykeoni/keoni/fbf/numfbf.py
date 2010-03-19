@@ -1,5 +1,5 @@
 '''
-$Id: numfbf.py,v 1.7 2007/07/31 20:44:52 maciek Exp $
+$Id$
 Flat Binary Format python utilities, recoded for speed using numpy.
 Maciek Smuga-Otto <maciek@ssec.wisc.edu> 
 based on the FBF.py library by Ray Garcia <rayg@ssec.wisc.edu>
@@ -16,7 +16,7 @@ fbf_encodings = dict(
     char1 = 'c', char = 'c',
     int1 = 'b', uint1 = 'B',
     int2 = 'h', uint2 = 'H',
-    int4 = 'l', integer4 = 'l', uint4 = 'L',
+    int4 = 'i', integer4 = 'i', uint4 = 'I',
     int8 = 'q', uint8 = 'Q',
     real4 = 'f',
     real8 = 'd',
