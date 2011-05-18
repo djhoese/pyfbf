@@ -9,6 +9,7 @@ import logging
 import sys
 import os
 import numpy
+import mmap
 import string
 import re
 
@@ -125,10 +126,11 @@ class FBF(object):
         return FBF_FMT % vars(self)
     
     def fp(self, mode='rb'):
-        try:
-            return self.file
-        except AttributeError:
-            return open(self.pathname, mode)
+        fob = getattr(self, 'file', None)
+        if not fob: 
+            fob = self.file = file(self.pathname, mode)
+            self.mode = mode
+        return fob
     
     def open( self, mode='rb' ): 
         self.file = self.fp(mode)
@@ -162,12 +164,20 @@ class FBF(object):
     def __getitem__( self, idx ):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
-        if not hasattr(self, 'data'):
+        length = self.length()
+        if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
             fp = self.fp()
             fp.seek(0)
-            self.data = numpy.fromfile( fp, self.array_type ).reshape( [self.length()] + self.grouping[::-1] )
-            if self.flip_bytes: 
-                self.data.dtype = self.data.dtype.newbyteorder()
+            shape = [length] + self.grouping[::-1]
+            if '+' in self.mode or 'w' in self.mode:
+                access = mmap.ACCESS_WRITE
+            else:
+                access = mmap.ACCESS_READ
+            self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
+            self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
+            self.mmap_length = length
+#             if self.flip_bytes: 
+#                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
 
         logging.debug("len: %s grouping: %s" % (self.length(),self.grouping))
