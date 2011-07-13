@@ -91,7 +91,7 @@ class FBF(object):
         parts = self.filename.split('.')
         
         self.stemname = parts[0]
-        fbftype = parts[1]
+        fbftype = sfx_remap.get(parts[1].upper(), parts[1])
         self.grouping = [ int(x) for x in parts[2:] ]
         if not self.grouping:
             self.grouping = [1]
@@ -169,6 +169,7 @@ class FBF(object):
             fp = self.fp()
             fp.seek(0)
             shape = [length] + self.grouping[::-1]
+            logging.debug('mapping with shape %r' % shape)
             if '+' in self.mode or 'w' in self.mode:
                 access = mmap.ACCESS_WRITE
             else:
@@ -180,8 +181,8 @@ class FBF(object):
 #                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
 
-        logging.debug("len: %s grouping: %s" % (self.length(),self.grouping))
-        logging.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
+        #logging.debug("len: %s grouping: %s" % (self.length(),self.grouping))
+        #logging.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
         return self.data[idx]
     
 
