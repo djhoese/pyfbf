@@ -38,6 +38,7 @@ sfx_remap = dict(STA='int1')
 try:
     byteorder = sys.byteorder
 except AttributeError:
+    import struct
     testbytes = struct.pack( '=l', 0xabcd )
     if struct.pack( '<l', 0xabcd ) == testbytes:   byteorder = 'little'
     elif struct.pack( '>l', 0xabcd ) == testbytes: byteorder = 'big'
@@ -201,6 +202,19 @@ def read( fbf, start=1, end=0 ):
         idx = slice(start-1, end-1)
     
     return fbf[idx]
+
+def extract_indices_to_file( inp, indices, out_file ):
+    "1-based record list is transcribed to a new output file in list order"
+    if isinstance(inp, str):
+        inp = FBF(inp)
+    if isinstance(out_file, str):
+        fout = open( out_file, 'wb' )
+        shouldclose=True
+    else:
+        shouldclose=False
+    for r in indices:
+        inp[r-1].tofile(fout)
+    if shouldclose: fout.close()
 
 def write( fbf, idx, data ):
     '''write records to an FBF file - pass in either an FBF object or an FBF file name
