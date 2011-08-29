@@ -204,7 +204,7 @@ def read( fbf, start=1, end=0 ):
     return fbf[idx]
 
 def extract_indices_to_file( inp, indices, out_file ):
-    "1-based record list is transcribed to a new output file in list order"
+    "0-based index list is transcribed to a new output file in list order"
     if isinstance(inp, str):
         inp = FBF(inp)
     if isinstance(out_file, str):
@@ -213,7 +213,7 @@ def extract_indices_to_file( inp, indices, out_file ):
     else:
         shouldclose=False
     for r in indices:
-        inp[r-1].tofile(fout)
+        inp[r].tofile(fout)
     if shouldclose: fout.close()
 
 def write( fbf, idx, data ):
