@@ -60,39 +60,46 @@ def compare(name, x, y1,y2, records, filter=None, initial_r = 0):
     return f
 
 
-def link_recs(records, yfunc, canvas=None, axes=None, name="Record", autoscale=True):
+def _iterable(x): return hasattr(x,'__iter__')
+
+
+def follow(records, yfuncs, axes=None, canvas=None, name="Record", autoscale=True):
     """bind a slider to an axis, updating lines using a callable
     e.g.
     plot(W.Wavenumber[0], W.RAD[0])
     recs = find(abs(W.sceneMirrorAngle[:]-180)<2.0)
-    link_recs(recs, W.RAD, name="Nadir Views")
+    follow(recs, W.RAD, name="Nadir Views")
+    follow(recs, [W.RAD, W.BT])
     """
-    if canvas is None and axes is None:
-        from matplotlib.pyplot import gcf, gca
-        canvas = gcf().canvas
-        axes = gca()
-
-    if not callable(yfunc):
-        ydata = yfunc
-        yfunc = lambda r: ydata[r]
-
-    def refresh(r, canvas=canvas, ax=axes, yfunc=yfunc, autoscale=autoscale):
-        if len(ax.lines)==1:
-            ys = [yfunc(r)]
+    from matplotlib.pyplot import gcf, gca
+    if not _iterable(yfuncs):
+        yfuncs = [yfuncs]
+    if axes is not None and not _iterable(axes):
+        axes = [axes]
+    if axes is None:
+        gcax = list(gcf().axes)
+        if len(yfuncs)==1:
+            axes = [gca()]            
+        elif len(yfuncs)==len(gcax):
+            axes = gcax
         else:
-            ys = yfunc(r)
-        for y,ln in zip(ys, ax.lines):
-            if y is None: continue
-            ln.set_ydata(y)
-        if autoscale:
-            ax.relim()
-            ax.autoscale(True,'y')
+            raise ValueError('could not figure out which axes to use')
+    if canvas is None:
+        canvas = gcf().canvas
+
+    def refresh(r, canvas=canvas, ax=axes, yfuncs=yfuncs, autoscale=autoscale):
+        for fy,a in zip(yfuncs, ax):
+            ln = a.lines[0]
+            ln.set_ydata(fy(r) if callable(fy) else fy[r])
+            if autoscale:
+                a.relim()
+                a.autoscale(True,'y')
         canvas.draw()
 
     slider = wdgt.IFGSlider(records, parent=TB, title=name, live_update=True, callbacks=[refresh])
     TB.add_widget(slider)
     refresh(records[0])
-    return slider
+    return slider, refresh
 
 
 def plot(name, x,y, records, initial_r = 0):
