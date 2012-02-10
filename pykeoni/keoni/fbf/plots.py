@@ -63,13 +63,21 @@ def compare(name, x, y1,y2, records, filter=None, initial_r = 0):
 def _iterable(x): return hasattr(x,'__iter__')
 
 
-def follow(records, yfuncs, axes=None, canvas=None, name="Record", autoscale=True):
+def follow(records, yfuncs, axes=None, canvas=None, name="Record", callbacks=[], autoscale=True):
     """bind a slider to an axis, updating lines using a callable
     e.g.
-    plot(W.Wavenumber[0], W.RAD[0])
-    recs = find(abs(W.sceneMirrorAngle[:]-180)<2.0)
-    follow(recs, W.RAD, name="Nadir Views")
-    follow(recs, [W.RAD, W.BT])
+    from keoni.fbf import Workspace
+    W = Workspace('.')
+    import keoni.fbf.plots as gui
+    reim = lambda re,im,n: abs(re[n] + 1j*im[n])
+    fhy = lambda r: abs(W.CalHotRefLWReal[r] + 1j* W.CalHotRefLWImag[r])
+    fsy = lambda r: abs(W.CalSceneLWReal[r] + 1j* W.CalSceneLWImag[r])
+    fcy = lambda r: abs(W.CalColdRefLWReal[r] + 1j* W.CalColdRefLWImag[r])
+    figure()
+    subplot(311); pah=plot(fhy(0))
+    subplot(312); pas=plot(fsy(0))
+    subplot(313); pac=plot(fcy(0))    
+    gui.follow(list(range(len(W.CalSceneLWReal))), [fhy,fsy,fcy])
     """
     from matplotlib.pyplot import gcf, gca
     if not _iterable(yfuncs):
@@ -86,14 +94,22 @@ def follow(records, yfuncs, axes=None, canvas=None, name="Record", autoscale=Tru
             raise ValueError('could not figure out which axes to use')
     if canvas is None:
         canvas = gcf().canvas
+    if not _iterable(callbacks):
+        callbacks = [callbacks]
 
-    def refresh(r, canvas=canvas, ax=axes, yfuncs=yfuncs, autoscale=autoscale):
+    def refresh(r, canvas=canvas, ax=axes, yfuncs=yfuncs, autoscale=autoscale, callbacks=callbacks):
         for fy,a in zip(yfuncs, ax):
-            ln = a.lines[0]
-            ln.set_ydata(fy(r) if callable(fy) else fy[r])
+            ydata = fy(r if callable(fy) else fy[r])
+            if (len(a.lines)==1):
+                a.lines[0].set_ydata(ydata)
+            else:
+                for ln,y in zip(a.lines, ydata):
+                    ln.set_ydata(y)
             if autoscale:
                 a.relim()
-                a.autoscale(True,'y')
+                a.autoscale(True, 'y')
+        for cb in callbacks:
+            cb(r)
         canvas.draw()
 
     slider = wdgt.IFGSlider(records, parent=TB, title=name, live_update=True, callbacks=[refresh])
