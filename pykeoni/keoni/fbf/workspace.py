@@ -12,8 +12,8 @@ class Workspace(object):
     def __init__(self,dir='.'):
         self._dir=dir
 
-    def __getattr__(self,name):
-        g = glob.glob( os.path.join(self._dir,name+'.*') )
+    def __getattr__(self,name, wildcard='.*'):
+        g = glob.glob( os.path.join(self._dir,name+wildcard) )
         if len(g)==1:
             fp = FBF(g[0])
             fp.open()
@@ -36,7 +36,7 @@ class Workspace(object):
         return dict(self.vars())
 
     def __getitem__(self,name):
-        return getattr(self,name)
+        return getattr(self,name,wildcard='*')
 
     
 if __name__=='__main__':
