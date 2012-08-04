@@ -12,7 +12,7 @@ class Workspace(object):
     def __init__(self,dir='.'):
         self._dir=dir
 
-    def __getattr__(self,name, wildcard='.*'):
+    def var(self, name, wildcard='.*'):
         g = glob.glob( os.path.join(self._dir,name+wildcard) )
         if len(g)==1:
             fp = FBF(g[0])
@@ -20,9 +20,6 @@ class Workspace(object):
             setattr(self,name,fp)
             return fp
         raise exceptions.AttributeError, "%s not in workspace" % name
-        
-    def var(self,name):
-        return getattr(self, name)
     
     def vars(self):
         for path in os.listdir(self._dir):
@@ -36,7 +33,11 @@ class Workspace(object):
         return dict(self.vars())
 
     def __getitem__(self,name):
-        return getattr(self,name,wildcard='*')
+        return self.var(name, wildcard='*')
+
+    def __getattr__(self, name):
+        return self.var(name, wildcard='.*')
+        
 
     
 if __name__=='__main__':

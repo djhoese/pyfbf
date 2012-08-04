@@ -13,6 +13,8 @@ import mmap
 import string
 import re
 
+LOG = logging.getLogger(__name__)
+
 fbf_encodings = dict(
     char1 = 'c', char = 'c',
     int1 = 'b', uint1 = 'B',
@@ -43,7 +45,7 @@ except AttributeError:
     if struct.pack( '<l', 0xabcd ) == testbytes:   byteorder = 'little'
     elif struct.pack( '>l', 0xabcd ) == testbytes: byteorder = 'big'
     else: 
-        logging.warning("Unable to identify byte order, defaulting to 'little'.")
+        LOG.warning("Unable to identify byte order, defaulting to 'little'.")
         byteorder = 'little'
 
 fbf_endian['native'] = fbf_endian['='] = fbf_endian[ byteorder ]
@@ -64,7 +66,7 @@ record_size: %(record_size)s >"""
 class FbfWarning(UserWarning): pass
 
 def array_product(a):
-    logging.debug("input to array_product: %s" % a)
+    LOG.debug("input to array_product: %s" % a)
     if len(a) == 0: return 1
     elif len(a) == 1: return a[0]
     else:
@@ -170,7 +172,7 @@ class FBF(object):
             fp = self.fp()
             fp.seek(0)
             shape = [length] + self.grouping[::-1]
-            logging.debug('mapping with shape %r' % shape)
+            LOG.debug('mapping with shape %r' % shape)
             if '+' in self.mode or 'w' in self.mode:
                 access = mmap.ACCESS_WRITE
             else:
@@ -182,8 +184,8 @@ class FBF(object):
 #                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
 
-        #logging.debug("len: %s grouping: %s" % (self.length(),self.grouping))
-        #logging.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
+        #LOG.debug("len: %s grouping: %s" % (self.length(),self.grouping))
+        #LOG.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
         return self.data[idx]
     
 
@@ -243,6 +245,7 @@ FBF.block_write = block_write
 
 def test():
     import doctest
+    logging.basicConfig(level = logging.DEBUG)
     doctest.testfile( "numfbf.doctest" )
     
 if __name__ == '__main__':
