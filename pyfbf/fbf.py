@@ -20,7 +20,12 @@ class fbf2dpl(object):
     _slicer = None            # fbf_slicer instance 
     _eob_sleep = None         # minimum time delay between frames in seconds
     
-    def __init__(self, work_dir, eob_sleep=None, filename_filter=None):
+    def __init__(self, work_dir, eob_sleep=None, filename_filter=None, realtime=None):
+        """
+        start up fpf2dpl for a given rsh2fbf work directory
+        optionally provide a filter predicate for which filenames to open into the frame
+        if rsh2fbf.pid is present and realtime is True or None (automatic), hook into UDP signals
+        """
         assert(os.path.isdir(work_dir))
         self._eob_sleep = eob_sleep
         self._slicer = fbf_slicer(work_dir, 0, filename_filter)
