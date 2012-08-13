@@ -109,6 +109,7 @@ def main():
                     action="store_true", default=False, help="run self-tests")
     parser.add_argument('-B', '--buffer-size', metavar='buffer_size', default=0, type=int, help='rsh2fbf circular buffer size' )
     parser.add_argument('-R', '--rolling', default=False, action='store_true', help='rolling records' )
+    parser.add_argument('-E', '--earth', default=False, action='store_true', help='yield earth-view frames, implies --rolling' )
     parser.add_argument('-v', '--verbosity', action="count", default=0,
                     help='each occurrence increases verbosity 1 level through ERROR-WARNING-INFO-DEBUG')
     parser.add_argument('src', help = "source file to process")
@@ -139,11 +140,24 @@ mkdir /tmp/rsh2fbf; cd /tmp/rsh2fbf; RSH2FBF_CIRCULAR_BUFFER_SIZE=256 RSH2FBF_EO
 python -m ifg.rsh2dpl.fbf /tmp/rsh2fbf -B 256
 """
 
-    fnf = lambda fn: fn.startswith('HBB') or fn.startswith('ABB')
-    f2d = fbf2dpl(args.src, frame_width=4, buffer_size=args.buffer_size, filename_filter = fnf, rolling=args.rolling, rec_gen=True)
-    for F in f2d():
+    # grab all the low-dimension values
+    fnf = lambda fn: fn.endswith('.real4') # fn.startswith('HBB') or fn.startswith('ABB')
+    if args.earth:
+        args.rolling = True
+
+    f2d = fbf2dpl(args.src, frame_width=32, buffer_size=args.buffer_size, filename_filter = fnf, rolling=args.rolling, rec_gen=True)()
+
+    if args.earth:
+        from .scanline import earth_scans
+        rolling_frames = f2d
+        f2d = earth_scans(rolling_frames)
+
+    for F in f2d:
         print '\n=== record %d~%d' % (F.first_record, F.last_record)
+        print 'ABBapexTemp'
         print F.ABBapexTemp
+        print 'sceneMirrorAngle'
+        print F.sceneMirrorAngle
         sys.stdout.flush()
 
 
