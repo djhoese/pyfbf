@@ -111,6 +111,8 @@ def main():
     parser.add_argument('-B', '--buffer-size', metavar='buffer_size', default=0, type=int, help='rsh2fbf circular buffer size' )
     parser.add_argument('-R', '--rolling', default=False, action='store_true', help='rolling records' )
     parser.add_argument('-E', '--earth', default=False, action='store_true', help='yield earth-view frames, implies --rolling' )
+    #parser.add_argument('-b', '--bt', default=False, action='store_true', help='add BT channels to scanline frames')
+    # in order to support BT channels, we need a -M MSG:PID option to allow us to key our event generator on an SDR source
     parser.add_argument('-v', '--verbosity', action="count", default=0,
                     help='each occurrence increases verbosity 1 level through ERROR-WARNING-INFO-DEBUG')
     parser.add_argument('src', help = "source file to process")
@@ -146,12 +148,17 @@ python -m ifg.rsh2dpl.fbf /tmp/rsh2fbf -B 256
     if args.earth:
         args.rolling = True
 
+
     f2d = fbf2dpl(args.src, frame_width=32, buffer_size=args.buffer_size, filename_filter = fnf, rolling=args.rolling, rec_gen=True)()
 
     if args.earth:
         from .scanline import earth_scans
         rolling_frames = f2d
         f2d = earth_scans(rolling_frames)
+
+    #if args.bt:
+    #    from .bt_swath import merge_bt_swath, BT_CHANNEL_NAMES
+    #    f2d = merge_bt_swath(f2d)
 
     for F in f2d:
         print '\n=== record %d~%d' % (F.first_record, F.last_record)
@@ -160,6 +167,9 @@ python -m ifg.rsh2dpl.fbf /tmp/rsh2fbf -B 256
         print 'sceneMirrorAngle'
         print F.sceneMirrorAngle
         sys.stdout.flush()
+        #if args.bt:
+        #    print BT_CHANNEL_NAMES[2]
+        #    print getattr(F, BT_CHANNEL_NAMES[2])
 
 
     return 0
