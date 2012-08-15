@@ -61,7 +61,7 @@ class fbf_slicer(object):
                 len = nfo.length()
                 # check for non-circular buffer case and going off the end of the file
                 # note use of > since record numbers are 1-based
-                if (self._buffer_size > 0) and (first_record > len or last_record > len):
+                if (self._buffer_size == 0) and (len != 1) and (first_record > len or last_record > len):
                     LOG.warning('%s: length is %d but start-end is %d-%d' % (name,len,first_record,last_record))
                     return None
                 # check for circular buffers that aren't preallocated properly
