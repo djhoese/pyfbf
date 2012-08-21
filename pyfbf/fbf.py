@@ -61,6 +61,11 @@ class fbf2dpl(object):
             pid = int(fp.read().strip())
             return udp_event_gen(yield_recs=True, MSG='FBFnewRecords', PID=pid)
 
+    def __del__(self):
+        try:
+            self.close()
+        except StandardError:
+            pass
 
     def __call__(self):
         next_time = time.time() if self._eob_sleep else None
