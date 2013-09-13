@@ -75,8 +75,11 @@ class fbf2dpl(object):
         if self._rec_gen is None:
             self._rec_gen = _onesies()
 
+        current_frame_width = 0
         for rec in self._rec_gen:
             LOG.debug('processing record %d' % rec)
+            current_frame_width += 1
+
             if self._eob_sleep:
                 now = time.time()
                 delta = next_time - now
@@ -84,12 +87,12 @@ class fbf2dpl(object):
                     time.sleep(delta)
                 next_time = now + self._eob_sleep
 
-            if not self._rolling and 0 != (rec % self._frame_width):
+            if not self._rolling and 0 != (current_frame_width % self._frame_width):
                 LOG.debug('skipping %d since we are not rolling' % rec)
                 continue
 
-            if rec < self._frame_width:
-                LOG.debug('waiting for %d records' % self._frame_width)
+            if current_frame_width < self._frame_width:
+                LOG.debug('waiting for %d records, only have %d' % (self._frame_width,current_frame_width))
                 continue
 
             first = max(1,rec-self._frame_width+1)
@@ -103,6 +106,8 @@ class fbf2dpl(object):
             data.first_record, data.last_record = first, last
             LOG.debug('done slicing')
             yield data
+            if not self._rolling:
+                current_frame_width = 0
 
 
 def main():
