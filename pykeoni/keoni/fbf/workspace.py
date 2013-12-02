@@ -15,7 +15,7 @@ class Workspace(object):
         self._dir=dir
 
     def var(self, name, wildcard='.*'):
-        g = glob.glob( os.path.join(self._dir, name+wildcard) )
+        g = glob.glob( os.path.join(self._dir, (name + wildcard) if '.' not in name else name) )
         if len(g)==1:
             fp = FBF(g[0])
             fp.open()
