@@ -4,22 +4,24 @@ Flat Binary Format python utilities
 parallel to TOOLS/Mfiles/fbf*.m
 """
 
-import os,glob,exceptions
+import os,glob
 
 from keoni.fbf.numfbf import *  # originally in cvs/TOOLS/dev/maciek/python
 
+# FUTURE: workspace should return numpy.memmap arrays
+
 class Workspace(object):
-    def __init__(self,dir='.'):
+    def __init__(self, dir='.'):
         self._dir=dir
 
     def var(self, name, wildcard='.*'):
-        g = glob.glob( os.path.join(self._dir,name+wildcard) )
+        g = glob.glob( os.path.join(self._dir, name+wildcard) )
         if len(g)==1:
             fp = FBF(g[0])
             fp.open()
-            setattr(self,name,fp)
+            setattr(self,fp.stemname,fp)
             return fp
-        raise exceptions.AttributeError, "%s not in workspace" % name
+        raise AttributeError("%s not in workspace" % name)
     
     def vars(self):
         for path in os.listdir(self._dir):
