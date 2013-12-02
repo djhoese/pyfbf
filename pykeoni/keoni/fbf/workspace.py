@@ -14,8 +14,8 @@ class Workspace(object):
     def __init__(self, dir='.'):
         self._dir=dir
 
-    def var(self, name, wildcard='.*'):
-        g = glob.glob( os.path.join(self._dir, (name + wildcard) if '.' not in name else name) )
+    def var(self, name):
+        g = glob.glob( os.path.join(self._dir, (name + '.*') if '.' not in name else name) )
         if len(g)==1:
             fp = FBF(g[0])
             fp.open()
@@ -35,10 +35,10 @@ class Workspace(object):
         return dict(self.vars())
 
     def __getitem__(self,name):
-        return self.var(name, wildcard='*')
+        return self.var(name)
 
     def __getattr__(self, name):
-        return self.var(name, wildcard='.*')
+        return self.var(name)
         
 
     
