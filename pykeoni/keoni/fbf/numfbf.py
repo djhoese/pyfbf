@@ -27,28 +27,67 @@ fbf_encodings = dict(
     complex16 = 'D'
 )
 
-fbf_endian = { 
+FBF_ENDIAN = {
     '>': string.upper,
     '<': string.lower,
     'big': string.upper,
     'little': string.lower
 }
 
+
+# FIXME: resolve fbf_encodings vs SUFFIX_TO_DTYPE usage
+
+FBF_FLOAT32   = "real4"
+FBF_FLOAT64   = "real8"
+FBF_INT8      = "int1"
+FBF_INT16     = "int2"
+FBF_INT32     = "int4"
+FBF_INT64     = "int8"
+FBF_UINT8     = "uint1"
+FBF_UINT16    = "uint2"
+FBF_UINT32    = "uint4"
+FBF_UINT64    = "uint8"
+
+SUFFIX_TO_DTYPE = {
+        FBF_FLOAT32   : numpy.float32,
+        FBF_FLOAT64   : numpy.float64,
+        FBF_INT8      : numpy.int8,
+        FBF_INT16     : numpy.int16,
+        FBF_INT32     : numpy.int32,
+        FBF_INT64     : numpy.int64,
+        FBF_UINT8     : numpy.uint8,
+        FBF_UINT16    : numpy.uint16,
+        FBF_UINT32    : numpy.uint32,
+        FBF_UINT64    : numpy.uint64
+        }
+
+# FIXME avoid this __name__ nonsense
+SDTYPE_TO_SUFFIX = dict((v.__name__,k) for (k,v) in SUFFIX_TO_DTYPE.items())   # FUTURE: really would prefer not having a string key
+
+
+def data_type_to_fbf_type(data_type):
+    if data_type not in dtype2fbf:
+        msg = "Can not convert data type '%s' to FBF data type" % (data_type,)
+        log.error(msg)
+        raise ValueError(msg)
+
+    return dtype2fbf[data_type]
+
 sfx_remap = dict(STA='int1')
 
 # Try to figure out the system's native byte order, defaulting to little-endian if unknown
 try:
-    byteorder = sys.byteorder
+    BYTEORDER = sys.byteorder
 except AttributeError:
     import struct
     testbytes = struct.pack( '=l', 0xabcd )
-    if struct.pack( '<l', 0xabcd ) == testbytes:   byteorder = 'little'
-    elif struct.pack( '>l', 0xabcd ) == testbytes: byteorder = 'big'
+    if struct.pack( '<l', 0xabcd ) == testbytes:   BYTEORDER = 'little'
+    elif struct.pack( '>l', 0xabcd ) == testbytes: BYTEORDER = 'big'
     else: 
         LOG.warning("Unable to identify byte order, defaulting to 'little'.")
-        byteorder = 'little'
+        BYTEORDER = 'little'
 
-fbf_endian['native'] = fbf_endian['='] = fbf_endian[ byteorder ]
+FBF_ENDIAN['native'] = FBF_ENDIAN['='] = FBF_ENDIAN[ BYTEORDER ]
 
 # reporting format for FBF object
 FBF_FMT = """< FBF object:
@@ -64,6 +103,19 @@ element_size: %(element_size)s
 record_size: %(record_size)s >""" 
 
 class FbfWarning(UserWarning): pass
+
+def filename(stem, dtype, shape=None):
+    """build a filename, given a stem, element datatype, and record array shape
+    filename('mydata', data.dtype, data.shape)
+    """
+    typename = SDTYPE_TO_SUFFIX[str(dtype)]
+    fn = '%s.%s' % ( stem, FBF_ENDIAN[BYTEORDER](typename) )
+    if shape is not None:
+        shape = tuple(shape)
+    if shape is None or shape == (1,):
+        return fn
+    return fn + '.' + '.'.join(str(x) for x in reversed(shape))
+
 
 def array_product(a):
     LOG.debug("input to array_product: %s" % a)
@@ -106,7 +158,7 @@ class FBF(object):
             self.byteorder='little'
             self.endian='<'
         
-        self.flip_bytes = (self.byteorder != byteorder)
+        self.flip_bytes = (self.byteorder != BYTEORDER)
         self.element_size = int(re.findall('\d+',fbftype)[0])
         self.record_elements = array_product(self.grouping)
         self.record_size = self.element_size * self.record_elements        
@@ -119,7 +171,7 @@ class FBF(object):
     def build(self, stemname, typename, grouping=None, dirname='.', byteorder='native' ):
         '''build an FBF descriptor object from scratch.'''
         
-        filename = '%s.%s' % ( stemname, fbf_endian[byteorder]( typename ) )
+        filename = '%s.%s' % ( stemname, FBF_ENDIAN[byteorder]( typename ) )
         if grouping and grouping != [1]: 
             filename += '.' + '.'.join( str(x) for x in grouping )
         
