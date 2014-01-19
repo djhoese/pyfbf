@@ -65,14 +65,6 @@ SUFFIX_TO_DTYPE = {
 SDTYPE_TO_SUFFIX = dict((v.__name__,k) for (k,v) in SUFFIX_TO_DTYPE.items())   # FUTURE: really would prefer not having a string key
 
 
-def data_type_to_fbf_type(data_type):
-    if data_type not in dtype2fbf:
-        msg = "Can not convert data type '%s' to FBF data type" % (data_type,)
-        log.error(msg)
-        raise ValueError(msg)
-
-    return dtype2fbf[data_type]
-
 sfx_remap = dict(STA='int1')
 
 # Try to figure out the system's native byte order, defaulting to little-endian if unknown
