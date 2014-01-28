@@ -117,19 +117,46 @@ def array_product(a):
         return reduce( lambda x,y: x*y, a ) # product of all dimensions
     
 class FBF(object):
-    def __init__( self, stemname=None, typename=None, grouping=None, dirname='.', byteorder='native' ): 
+    """FBF object.
+    Holds lazy file handle, bookkeeping information, mmap object.
+    """
+    # FUTURE: reduce redundancies here??
+    pathname = None
+    stemname = None
+    dirname = None
+    filename = None
+
+    grouping = None
+    byteorder = None
+    endian = None
+    flip_bytes = None
+    element_size = None
+    record_elements = None
+    record_size = None
+    array_type = None
+    type = None
+
+    pending_flush = None
+    file = None
+    mode = 'rb'
+
+    data = None
+    mmap = None
+    mmap_length = None
+
+    def __init__( self, stemname=None, typename=None, grouping=None, dirname='.', byteorder='native', writable=False ):
         if not stemname:
             raise FbfWarning('FBF object must be instantiated with at least a filename')
         if not typename: 
             filename = stemname # filename given as argument: Attach to existing FBF file on disk
-            self.attach( filename )
+            self.attach( filename, writable=writable )
         else:
             # generate a new FBF object, file will need to be explicitly created.
             if not grouping:
                 self.grouping = [1]
-            self.build( stemname, typename, grouping, dirname, byteorder )
+            self.build( stemname, typename, grouping, dirname, byteorder, writable )
     
-    def attach( self, pathname ):
+    def attach( self, pathname, writable=False ):
         '''Attach object to existing file on disk'''
         self.pathname = pathname
         self.dirname, self.filename = os.path.split( pathname )
@@ -157,10 +184,11 @@ class FBF(object):
         self.array_type = fbf_encodings[fbftype]
         self.type = fbftype.lower()
         self.pending_flush = False
+        self.mode = 'rb' if not writable else 'w+b'
         
         return self
     
-    def build(self, stemname, typename, grouping=None, dirname='.', byteorder='native' ):
+    def build(self, stemname, typename, grouping=None, dirname='.', byteorder='native', writable=True ):
         '''build an FBF descriptor object from scratch.'''
         
         filename = '%s.%s' % ( stemname, FBF_ENDIAN[byteorder]( typename ) )
@@ -172,14 +200,18 @@ class FBF(object):
     def __str__(self):
         return FBF_FMT % vars(self)
     
-    def fp(self, mode='rb'):
-        fob = getattr(self, 'file', None)
-        if not fob: 
+    def fp(self, mode=None):
+        fob = self.file
+        if mode is None:
+            mode = self.mode
+        if not fob or mode!=self.mode:
+            if fob is not None:
+                fob.close()
             fob = self.file = file(self.pathname, mode)
             self.mode = mode
         return fob
     
-    def open( self, mode='rb' ): 
+    def open( self, mode='rb' ):
         self.file = self.fp(mode)
         return self.file
     
@@ -188,20 +220,21 @@ class FBF(object):
         return self.file
     
     def close( self ):
-        if self.pending_flush:
-            try: self.file.flush()
-            except: pass
-        try: 
-            del self.file
+        if self.file is None:
             return 0
-        except AttributeError:
-            return 1
-    
+        if self.pending_flush and self.file is not None:
+            self.file.flush()
+        if self.mmap:
+            self.mmap.close()
+            self.mmap = None
+        self.file.close()
+        self.file = None
+        return 0
+
     def length( self ):
         if self.pending_flush:
-            try: self.file.flush()
-            except: pass
-        
+            self.file.flush()
+
         self.pending_flush = False
         return os.stat(self.pathname).st_size / self.record_size
     
@@ -211,20 +244,23 @@ class FBF(object):
     def __getitem__( self, idx ):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
+        if self.pending_flush:
+            self.file.flush()
         length = self.length()
-        if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
+        # FIXME: if the slice goes out of bounds, extend the file before updating memory map
+        if not self.data or self.mmap_length!=length:
             fp = self.fp()
             fp.seek(0)
             shape = [length] + self.grouping[::-1]
             LOG.debug('mapping with shape %r' % shape)
-            if '+' in self.mode or 'w' in self.mode:
-                access = mmap.ACCESS_WRITE
-            else:
-                access = mmap.ACCESS_READ
+            access = mmap.ACCESS_WRITE if ('+' in self.mode or 'w' in self.mode) else mmap.ACCESS_READ
+            if ((access==mmap.ACCESS_WRITE) and self.flip_bytes):
+                raise NotImplementedError('cannot slice-write an endian-reversed file file currently, use .write() or .block_write()')
             self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
             self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
             self.mmap_length = length
-#             if self.flip_bytes: 
+
+#             if self.flip_bytes:
 #                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
 
@@ -240,13 +276,12 @@ def read( fbf, start=1, end=0 ):
     '''legacy API call uses 1-based indexing, so read(1,-1) reads in the whole dataset'''
     if isinstance( fbf, str ): fbf = FBF(fbf)
     idx = start-1
-    if end < -1:
+    if end < -1:  # FIXME is this correct?
         idx = slice(start-1, end+1)
-    elif end == -1:
+    elif end == -1:  # FIXME is this correct?
         idx = slice(start-1,None) # special case: slice(n,0) is not equivalent
     elif end > 0:
         idx = slice(start-1, end-1)
-    
     return fbf[idx]
 
 def extract_indices_to_file( inp, indices, out_file ):
