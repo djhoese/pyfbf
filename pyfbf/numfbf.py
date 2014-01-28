@@ -1,7 +1,7 @@
 '''
 $Id$
 Flat Binary Format python utilities, recoded for speed using numpy.
-Maciek Smuga-Otto <maciek@ssec.wisc.edu> 
+Maciek Smuga-Otto <maciek@ssec.wisc.edu> and Ray Garcia
 based on the FBF.py library by Ray Garcia <rayg@ssec.wisc.edu>
 '''
 
@@ -109,8 +109,8 @@ def filename(stem, dtype, shape=None):
     return fn + '.' + '.'.join(str(x) for x in reversed(shape))
 
 
-def array_product(a):
-    LOG.debug("input to array_product: %s" % a)
+def _array_product(a):
+    LOG.debug("input to _array_product: %s" % repr(a))
     if len(a) == 0: return 1
     elif len(a) == 1: return a[0]
     else:
@@ -179,7 +179,7 @@ class FBF(object):
         
         self.flip_bytes = (self.byteorder != BYTEORDER)
         self.element_size = int(re.findall('\d+',fbftype)[0])
-        self.record_elements = array_product(self.grouping)
+        self.record_elements = _array_product(self.grouping)
         self.record_size = self.element_size * self.record_elements        
         self.array_type = fbf_encodings[fbftype]
         self.type = fbftype.lower()
@@ -232,31 +232,53 @@ class FBF(object):
         return 0
 
     def length( self ):
+        """The number of records in the file.
+        """
         if self.pending_flush:
             self.file.flush()
-
-        self.pending_flush = False
+            self.pending_flush = False
         return os.stat(self.pathname).st_size / self.record_size
     
     def __len__( self ):
         return self.length()
-    
+
+    def _slice_indices(self, slob, length=None):
+        if not isinstance(slob, slice):
+            slob = slice(slob)
+        return slob.indices(length or self.length())
+
+    def _is_writable(self):
+        return '+' in self.mode or 'w' in self.mode
+
     def __getitem__( self, idx ):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
         if self.pending_flush:
             self.file.flush()
+
         length = self.length()
-        # FIXME: if the slice goes out of bounds, extend the file before updating memory map
-        if not self.data or self.mmap_length!=length:
+        st_size = length * self.record_size
+        idxs = self._slice_indices(idx, length)
+        st_size_required = (1 + max(idxs)) * self.record_size
+
+        if self._is_writable() and (st_size_required > st_size):
+            fp = self.fp()
+            fp.seek(st_size_required-1)
+            fp.write('\0')
+            fp.flush()
+            LOG.debug('extending writable file to size %s by zero filling' % st_size_required)
+            length = self.length()
+
+        if not self.data or (self.record_size * self.mmap_length)<st_size_required:
             fp = self.fp()
             fp.seek(0)
             shape = [length] + self.grouping[::-1]
             LOG.debug('mapping with shape %r' % shape)
-            access = mmap.ACCESS_WRITE if ('+' in self.mode or 'w' in self.mode) else mmap.ACCESS_READ
+            access = mmap.ACCESS_WRITE if self._is_writable() else mmap.ACCESS_READ
             if ((access==mmap.ACCESS_WRITE) and self.flip_bytes):
                 raise NotImplementedError('cannot slice-write an endian-reversed file file currently, use .write() or .block_write()')
             self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
+            # FUTURE: look into how much danger we accrue by leaving old mmap un-closed
             self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
             self.mmap_length = length
 
@@ -272,17 +294,27 @@ class FBF(object):
 def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ): 
     return FBF( stemname, typename, grouping, dirname, byteorder )
 
+def _slice_ones_to_zeros(start, end, length):
+    """convert a one-based start~end inclusive pair to a start:stop zero-based slice, given length of file in records
+    """
+    # 1~-1 => (0,length)
+    # 2~-2 => (1,length-1)
+    assert(start!=0)
+    start = start-1 if start>0 else length + (start+1)
+    end = (None if end==0
+           else length + (end+1) if end<0
+           else end)
+    return slice(start, end)
+
+
 def read( fbf, start=1, end=0 ):
     '''legacy API call uses 1-based indexing, so read(1,-1) reads in the whole dataset'''
-    if isinstance( fbf, str ): fbf = FBF(fbf)
-    idx = start-1
-    if end < -1:  # FIXME is this correct?
-        idx = slice(start-1, end+1)
-    elif end == -1:  # FIXME is this correct?
-        idx = slice(start-1,None) # special case: slice(n,0) is not equivalent
-    elif end > 0:
-        idx = slice(start-1, end-1)
-    return fbf[idx]
+    if isinstance( fbf, str ):
+        fbf = FBF(fbf)
+    # convert 1-based inclusive [start,end] to 0-based inex [start,end)
+    slob = _slice_ones_to_zeros(start, end, fbf.length())
+    return fbf[slob][:]
+
 
 def extract_indices_to_file( inp, indices, out_file ):
     "0-based index list is transcribed to a new output file in list order"
@@ -302,12 +334,12 @@ def write( fbf, idx, data ):
     The index is a 1-based int (as in Fortran and Matlab). 
     Data must be an appropriately shaped and typed numpy array'''
     # FIXME: can only write in native byte order as far as I can tell.
+    # FIXME: coerce data to match dtype of file
     if isinstance( fbf, str ): fbf = FBF(fbf)
-    if ( array_product(data.shape) % fbf.record_elements ) != 0:
+    if ( _array_product(data.shape) % fbf.record_elements ) != 0:
         raise FbfWarning("data incorrectly shaped for write")
         
-    index = min( idx-1, fbf.length() )
-    fbf.file.seek( index * fbf.record_size )
+    fbf.file.seek( (idx-1) * fbf.record_size )
     data.tofile(fbf.file)
     fbf.pending_flush = True
     return 1
