@@ -6,7 +6,7 @@ parallel to TOOLS/Mfiles/fbf*.m
 
 import os,glob
 
-from keoni.fbf.numfbf import *  # originally in cvs/TOOLS/dev/maciek/python
+from .numfbf import *
 
 # FUTURE: workspace should return numpy.memmap arrays
 

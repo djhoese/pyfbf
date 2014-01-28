@@ -1,4 +1,4 @@
 # __all__ = ['workspace', 'numfbf']
 
-from keoni.fbf.workspace import Workspace 
-from keoni.fbf.numfbf import *
+from pyfbf.workspace import Workspace
+from pyfbf.numfbf import *
