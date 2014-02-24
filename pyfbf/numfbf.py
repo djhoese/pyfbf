@@ -277,7 +277,7 @@ class FBF(object):
             LOG.debug('extending writable file to size %s by zero filling' % st_size_required)
             length = self.length()
 
-        if not self.data or (self.record_size * self.mmap_length) < st_size_required:
+        if self.data is None or (self.record_size * self.mmap_length) < st_size_required:
             fp = self.fp()
             fp.seek(0)
             shape = [length] + self.grouping[::-1]

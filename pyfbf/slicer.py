@@ -1,32 +1,27 @@
 #!/usr/bin/env python
 
 import os
-import sys
 import logging
-from subprocess import Popen as popen
-from Queue import Queue, Empty as EmptyException
 from glob import glob
 from numpy import append
 
-import keoni.fbf as fbf
+from . import numfbf
 
 LOG = logging.getLogger(__name__)
 
 
-class rshdata(object):
-    "read all the values from current workspace directory into attributes"
-    pass
-
-
-class fbf_slicer(object):
-    """given a workspace directory of FBF files, grab all useful filenames and return a record of data at a time
+class FBFSlicer(object):
+    """Given a workspace directory of flat binary files, grab all useful filenames and return a record of data at a
+    time as a python dictionary.
     """
-    _wd = None
-    _buffer_size = 0   # number of records to expect in circular buffer files
-    _open_files = None
-    should_include = None # callable, returns True if a given filename should be included in the frame
+    def __init__(self, work_dir, buffer_size=0, filename_filter=None):
+        """Initialize slicer object parameters.
 
-    def __init__(self, work_dir, buffer_size, filename_filter=None):
+        :param work_dir: Workspace directory of flat binary files to read
+        :param buffer_size: Circular buffer size or 0 for non-circular buffers/FBFs
+        :param filename_filter: Filter function that returns True if the provided file should be opened for reading.
+                                Should return False otherwise.
+        """
         self._wd = work_dir
         self._buffer_size = buffer_size
         self._open_files = dict()
@@ -35,11 +30,11 @@ class fbf_slicer(object):
         self.should_include = filename_filter
 
     def _update_open_files(self):
-        for fn in glob( os.path.join(self._wd, '*') ):
+        for fn in glob(os.path.join(self._wd, '*')):
             if fn not in self._open_files and self.should_include(os.path.split(fn)[-1]):
                 LOG.debug('opening %s' % fn)
                 try:
-                    nfo = fbf.FBF(fn)
+                    nfo = numfbf.FBF(fn)
                 except Exception as oops:
                     nfo = None
                     LOG.info('%s could not be opened as FBF' % fn)
@@ -48,39 +43,41 @@ class fbf_slicer(object):
                 self._open_files[fn] = nfo
 
     def __call__(self, first_record, last_record=None):
-        "retrieve a slice of a FBF directory using inclusive 1-based record number range, noting that last-first+1 records are returned"
+        """Retrieve a slice of a FBF directory using inclusive 1-based record number range, noting
+        that last-first+1 records are returned.
+        """
         last_record = first_record if last_record is None else last_record
         if not self._open_files:
             self._update_open_files()
-        data = rshdata()
+        data = {}
         for name, nfo in self._open_files.items():
             if nfo is not None:
                 # note we use % in order to deal with
                 # wavenumber files that are only ever 1 record long
                 # circular buffers which are fixed length files
-                len = nfo.length()
+                file_len = nfo.length()
                 # check for non-circular buffer case and going off the end of the file
                 # note use of > since record numbers are 1-based
-                if (self._buffer_size == 0) and (len != 1) and (first_record > len or last_record > len):
-                    LOG.warning('%s: length is %d but start-end is %d-%d' % (name,len,first_record,last_record))
+                if (self._buffer_size == 0) and (file_len != 1) and (first_record > file_len or last_record > file_len):
+                    LOG.warning('%s: length is %d but start-end is %d-%d' % (name, file_len, first_record, last_record))
                     return None
                 # check for circular buffers that aren't preallocated properly
-                if self._buffer_size > 0 and len not in (1, self._buffer_size):
-                    LOG.info('buffer file %s size mismatch (%d != %d)! ignoring' % (name,len,self._buffer_size))
+                if self._buffer_size > 0 and file_len not in (1, self._buffer_size):
+                    LOG.info('buffer file %s size mismatch (%d != %d)! ignoring' % (name, file_len, self._buffer_size))
                 else:
                     # 0-based circular buffer
-                    first_index = (first_record - 1) % len
-                    last_index = (last_record - 1) % len
+                    first_index = (first_record - 1) % file_len
+                    last_index = (last_record - 1) % file_len
                     if last_index >= first_index:
                         # Records are in one continuous line
-                        idx = slice(first_index, last_index + 1) # +1 to include last item
-                        setattr(data, nfo.stemname, nfo[idx])
+                        idx = slice(first_index, last_index + 1)  # +1 to include last item
+                        data[nfo.stemname] = nfo[idx]
                     else:
                         # Records are on two ends of the circular buffer
                         idx1 = slice(first_index, self._buffer_size)
-                        idx2 = slice(0, last_index + 1) # +1 to include last item
+                        idx2 = slice(0, last_index + 1)  # +1 to include last item
                         arr1 = nfo[idx1]
                         arr2 = nfo[idx2]
-                        setattr(data, nfo.stemname, append(arr1, arr2, axis=0))
+                        data[nfo.stemname] = append(arr1, arr2, axis=0)
 
         return data
