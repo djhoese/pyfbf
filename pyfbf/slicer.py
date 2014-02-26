@@ -9,6 +9,8 @@ from . import numfbf
 
 LOG = logging.getLogger(__name__)
 
+class SlicerFrame(dict):
+    pass
 
 class FBFSlicer(object):
     """Given a workspace directory of flat binary files, grab all useful filenames and return a record of data at a
@@ -49,7 +51,7 @@ class FBFSlicer(object):
         last_record = first_record if last_record is None else last_record
         if not self._open_files:
             self._update_open_files()
-        data = {}
+        data = SlicerFrame()
         for name, nfo in self._open_files.items():
             if nfo is not None:
                 # note we use % in order to deal with

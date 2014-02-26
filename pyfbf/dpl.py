@@ -78,7 +78,7 @@ class fbf2dpl(object):
             if data is None:
                 LOG.warning('???')
                 return
-            data["first_record"], data["last_record"] = first, last
+            data.first_record, data.last_record = first, last
             LOG.debug('done slicing')
             yield data
             if not self._rolling:
@@ -139,7 +139,7 @@ def main():
     print "Ctrl+C to exit early"
     try:
         for F in f2d:
-            print '\n=== record %d~%d' % (F["first_record"], F["last_record"])
+            print '\n=== record %d~%d' % (F.first_record, F.last_record)
             for stem in args.stems:
                 print stem
                 print F.get(stem, None)
