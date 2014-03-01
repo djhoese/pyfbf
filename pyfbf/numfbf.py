@@ -10,8 +10,8 @@ import sys
 import os
 import numpy
 import mmap
-import string
 import re
+from functools import reduce
 
 LOG = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ fbf_encodings = dict(
 )
 
 FBF_ENDIAN = {
-    '>': string.upper,
-    '<': string.lower,
-    'big': string.upper,
-    'little': string.lower
+    '>': str.upper,
+    '<': str.lower,
+    'big': str.upper,
+    'little': str.lower
 }
 
 
@@ -67,6 +67,8 @@ SDTYPE_TO_SUFFIX = dict((v.__name__,k) for (k,v) in SUFFIX_TO_DTYPE.items())   #
 
 sfx_remap = dict(STA='int1')
 
+RE_FBF = re.compile(r'^.*?\.[A-Za-z]\w+(?:\.\d+)*$')
+
 # Try to figure out the system's native byte order, defaulting to little-endian if unknown
 try:
     BYTEORDER = sys.byteorder
@@ -94,7 +96,9 @@ array_type: %(array_type)s
 element_size: %(element_size)s
 record_size: %(record_size)s >""" 
 
-class FbfWarning(UserWarning): pass
+class FbfWarning(UserWarning):
+    pass
+
 
 def filename(stem, dtype, shape=None):
     """build a filename, given a stem, element datatype, and record array shape
@@ -110,27 +114,58 @@ def filename(stem, dtype, shape=None):
 
 
 def array_product(a):
-    LOG.debug("input to array_product: %s" % a)
+    LOG.debug("input to array_product: %s" % repr(a))
     if len(a) == 0: return 1
     elif len(a) == 1: return a[0]
     else:
         return reduce( lambda x,y: x*y, a ) # product of all dimensions
-    
+
+
 class FBF(object):
-    def __init__( self, stemname=None, typename=None, grouping=None, dirname='.', byteorder='native' ): 
-        if not stemname:
+    # filename attributes
+    pathname = None  # full path (redundant?)
+    dirname = None
+    filename = None
+    stemname = None  # filename before suffix (redundant?)
+
+    # byte order attributes
+    grouping = None
+    byteorder = None  # 'big', 'little'  (redundant)
+    endian = None  # struct '>' or '<'
+    flip_bytes = False  # bool (redundant?)
+
+    # array attributes
+    element_size = 0  # int
+    record_elements = 0  # int
+    record_size = None  # int (redundant)
+    array_type = None  # struct code (redundant)
+    type = None  # str: real4, int8, etc
+    dtype = None  # numpy dtype (redundant)
+
+    # file attributes
+    pending_flush = False  # bool, whether or not a .flush is needed prior to checking file length
+    file = None # file object
+    mode = None # open() mode, e.g. 'rb'
+    mmap = None # mmap object
+    mmap_length = 0 # number of records available in mmap (redundant?)
+    data = None # numpy object representing mmap
+
+
+    def __init__( self, stem_or_filename=None, typename=None, grouping=None, dirname='.', byteorder='native' ):
+        if not stem_or_filename:
             raise FbfWarning('FBF object must be instantiated with at least a filename')
-        if not typename: 
-            filename = stemname # filename given as argument: Attach to existing FBF file on disk
-            self.attach( filename )
+        elif not typename:
+            self.attach( stem_or_filename )
         else:
             # generate a new FBF object, file will need to be explicitly created.
             if not grouping:
                 self.grouping = [1]
-            self.build( stemname, typename, grouping, dirname, byteorder )
+            self.build( stem_or_filename, typename, grouping, dirname, byteorder )
     
     def attach( self, pathname ):
         '''Attach object to existing file on disk'''
+        if not RE_FBF.match(pathname):
+            raise ValueError('%s is not a valid FBF pathname' % pathname)
         self.pathname = pathname
         self.dirname, self.filename = os.path.split( pathname )
         if not self.dirname: self.dirname = '.'
@@ -151,11 +186,15 @@ class FBF(object):
             self.endian='<'
         
         self.flip_bytes = (self.byteorder != BYTEORDER)
-        self.element_size = int(re.findall('\d+',fbftype)[0])
+        try:
+            self.element_size = int(re.findall('\d+',fbftype)[0])
+        except IndexError:
+            raise ValueError('cannot attach %s as valid FBF' % pathname)
         self.record_elements = array_product(self.grouping)
         self.record_size = self.element_size * self.record_elements        
         self.array_type = fbf_encodings[fbftype]
         self.type = fbftype.lower()
+        self.dtype = SUFFIX_TO_DTYPE[self.type]
         self.pending_flush = False
         
         return self
@@ -175,7 +214,7 @@ class FBF(object):
     def fp(self, mode='rb'):
         fob = getattr(self, 'file', None)
         if not fob: 
-            fob = self.file = file(self.pathname, mode)
+            fob = self.file = open(self.pathname, mode)
             self.mode = mode
         return fob
     
@@ -186,24 +225,22 @@ class FBF(object):
     def create( self, mode='w+b' ):
         self.file = self.fp(mode)
         return self.file
-    
+
+    def _flush_if_needed(self):
+        if self.pending_flush and self.file:
+            self.file.flush()
+            self.pending_flush = False
+
     def close( self ):
-        if self.pending_flush:
-            try: self.file.flush()
-            except: pass
-        try: 
-            del self.file
-            return 0
-        except AttributeError:
+        self._flush_if_needed()
+        if not self.file:
             return 1
-    
+        self.file = None
+        return 0
+
     def length( self ):
-        if self.pending_flush:
-            try: self.file.flush()
-            except: pass
-        
-        self.pending_flush = False
-        return os.stat(self.pathname).st_size / self.record_size
+        self._flush_if_needed()
+        return int(os.stat(self.pathname).st_size / self.record_size)
     
     def __len__( self ):
         return self.length()
@@ -233,12 +270,15 @@ class FBF(object):
         return self.data[idx]
     
 
-def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ): 
+def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
+    """
+    DEPRECATED: procedural API for creating FBF objects
+    """
     return FBF( stemname, typename, grouping, dirname, byteorder )
 
-def read( fbf, start=1, end=0 ):
-    '''legacy API call uses 1-based indexing, so read(1,-1) reads in the whole dataset'''
-    if isinstance( fbf, str ): fbf = FBF(fbf)
+def _one_based_slice(fbf, start, end):
+    if start == end == 0:
+        start, end = 1, -1
     idx = start-1
     if end < -1:
         idx = slice(start-1, end+1)
@@ -246,11 +286,19 @@ def read( fbf, start=1, end=0 ):
         idx = slice(start-1,None) # special case: slice(n,0) is not equivalent
     elif end > 0:
         idx = slice(start-1, end-1)
-    
+    return idx
+
+def read( fbf, start=0, end=0 ):
+    '''DEPRECATED: legacy API call uses 1-based indexing, so read(1,-1) reads in the whole dataset'''
+    if isinstance( fbf, str ):
+        fbf = FBF(fbf)
+    idx = _one_based_slice(fbf, start, end)
+
     return fbf[idx]
 
+
 def extract_indices_to_file( inp, indices, out_file ):
-    "0-based index list is transcribed to a new output file in list order"
+    "DEPRECATED: 0-based index list is transcribed to a new output file in list order"
     if isinstance(inp, str):
         inp = FBF(inp)
     if isinstance(out_file, str):
@@ -263,21 +311,28 @@ def extract_indices_to_file( inp, indices, out_file ):
     if shouldclose: fout.close()
 
 def write( fbf, idx, data ):
-    '''write records to an FBF file - pass in either an FBF object or an FBF file name
+    '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
     The index is a 1-based int (as in Fortran and Matlab). 
     Data must be an appropriately shaped and typed numpy array'''
     # FIXME: can only write in native byte order as far as I can tell.
+    # FIXME: needs to convert to expected format, array order and contiguity, or raise an error on bad content
     if isinstance( fbf, str ): fbf = FBF(fbf)
     if ( array_product(data.shape) % fbf.record_elements ) != 0:
+        # FIXME: this should really check the shape and not just that record_elements divides length
         raise FbfWarning("data incorrectly shaped for write")
-        
+
     index = min( idx-1, fbf.length() )
+    if index != idx-1:
+        raise FbfWarning('data being written to record %d instead of %d' % (index+1, idx))
     fbf.file.seek( index * fbf.record_size )
     data.tofile(fbf.file)
     fbf.pending_flush = True
     return 1
 
 def block_write( fbf, idx, data ):
+    """
+    DEPRECATED: block write to a file using one-based indexing
+    """
     return write( fbf, idx, data )
     
 def info(name):

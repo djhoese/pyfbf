@@ -1,21 +1,21 @@
->>> from numfbf import *
+>>> from pyfbf import *
 >>> from numpy import array
 
->>> f = FBF('foo','real4',[15])
+>>> fp = FBF('foo','real4',[15])
 
->>> fp = f.create()
->>> len(f)
+>>> q = fp.create()
+>>> len(fp)
 0
 
->>> a = array([float(x)/2 for x in xrange(45)],'f')
+>>> a = array([float(x)/2 for x in range(45)],'f')
 >>> aa = a.reshape([15,3])
->>> f.block_write(1,aa)
+>>> fp.block_write(1,aa)
 1
 
->>> len(f)
+>>> len(fp)
 3
 
->>> print f
+>>> print(fp)
 < FBF object:
 pathname: ./foo.real4.15
 stemname: foo
@@ -28,11 +28,11 @@ array_type: f
 element_size: 4
 record_size: 60 >
 
->>> f.close()
+>>> fp.close()
 0
 
 >>> ff = FBF('foo.real4.15')
->>> print ff
+>>> print(ff)
 < FBF object:
 pathname: foo.real4.15
 stemname: foo
@@ -46,7 +46,7 @@ element_size: 4
 record_size: 60 >
 
 
->>> read('foo.real4.15')
+>>> read('foo.real4.15', 1, -1)
 array([[  0. ,   0.5,   1. ,   1.5,   2. ,   2.5,   3. ,   3.5,   4. ,
           4.5,   5. ,   5.5,   6. ,   6.5,   7. ],
        [  7.5,   8. ,   8.5,   9. ,   9.5,  10. ,  10.5,  11. ,  11.5,
