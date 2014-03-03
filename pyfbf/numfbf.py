@@ -1,247 +1,272 @@
 '''
 $Id$
 Flat Binary Format python utilities, recoded for speed using numpy.
-Maciek Smuga-Otto <maciek@ssec.wisc.edu> 
-based on the FBF.py library by Ray Garcia <rayg@ssec.wisc.edu>
+Ray Garcia <rayg@ssec.wisc.edu>
 '''
 
-import logging
-import sys
-import os
-import numpy
-import mmap
+import os, sys, logging, unittest
+import numpy as np
 import re
 from functools import reduce
 
 LOG = logging.getLogger(__name__)
 
-fbf_encodings = dict(
+RE_FILENAME=re.compile(r'^(?P<stem>\w+)\.(?:(?P<lend>[a-z][a-z0-9]+)|(?P<bend>[A-Z][A-Z0-9]+))(?:\.(?P<dims>[\.0-9]+))?$')
+# foo.real4.20.10
+#  stem: 'foo'
+#  end (bend/lend): 'real4'
+#  dims: 20.10
+
+
+# ref http://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#arrays-dtypes-constructing
+SUFFIX_TO_TYPESTRING = dict(
     char1 = 'c', char = 'c',
-    int1 = 'b', uint1 = 'B',
-    int2 = 'h', uint2 = 'H',
-    int4 = 'i', integer4 = 'i', uint4 = 'I',
-    int8 = 'q', uint8 = 'Q',
-    real4 = 'f',
-    real8 = 'd',
-    complex8 = 'F',
-    complex16 = 'D'
+    int1 = 'i1', uint1 = 'u1', sta = 'i1',
+    int2 = 'i2', uint2 = 'u2',
+    int4 = 'i4', uint4 = 'u4',
+    int8 = 'i8', uint8 = 'u8',
+    real4 = 'f4',
+    real8 = 'f8',
+    complex8 = 'c8',
+    complex16 = 'c16',
 )
 
-FBF_ENDIAN = {
-    '>': str.upper,
-    '<': str.lower,
-    'big': str.upper,
-    'little': str.lower
-}
+TYPESTRING_TO_SUFFIX = dict((v,k) for (k,v) in SUFFIX_TO_TYPESTRING.items())
 
 
-# FIXME: resolve fbf_encodings vs SUFFIX_TO_DTYPE usage
+def _dtype_from_regex_groups(stem=None, lend=None, dims=None, bend=None):
+    """
+    return a numpy dtype object from a suffix string,
+    describing the composition and shape of individual records
 
-FBF_FLOAT32   = "real4"
-FBF_FLOAT64   = "real8"
-FBF_INT8      = "int1"
-FBF_INT16     = "int2"
-FBF_INT32     = "int4"
-FBF_INT64     = "int8"
-FBF_UINT8     = "uint1"
-FBF_UINT16    = "uint2"
-FBF_UINT32    = "uint4"
-FBF_UINT64    = "uint8"
-
-SUFFIX_TO_DTYPE = {
-        FBF_FLOAT32   : numpy.float32,
-        FBF_FLOAT64   : numpy.float64,
-        FBF_INT8      : numpy.int8,
-        FBF_INT16     : numpy.int16,
-        FBF_INT32     : numpy.int32,
-        FBF_INT64     : numpy.int64,
-        FBF_UINT8     : numpy.uint8,
-        FBF_UINT16    : numpy.uint16,
-        FBF_UINT32    : numpy.uint32,
-        FBF_UINT64    : numpy.uint64
-        }
-
-# FIXME avoid this __name__ nonsense
-SDTYPE_TO_SUFFIX = dict((v.__name__,k) for (k,v) in SUFFIX_TO_DTYPE.items())   # FUTURE: really would prefer not having a string key
+    :param stem: stem string
+    :param lend: little-endian ending, e.g. real4
+    :param dims: string of dimensions, e.g. 20.10
+    :param bend: big-endian ending, e.g. REAL4
+    """
+    shape = 1
+    if dims:
+        shape = tuple(reversed(tuple(map(np.uint32, dims.split('.')))))
+    try:
+        if bend is not None:
+            descr = '>' + SUFFIX_TO_TYPESTRING[bend.lower()]
+        elif lend is not None:
+            descr = '<' + SUFFIX_TO_TYPESTRING[lend]
+        else:
+            raise ValueError('no suffix provided??')
+    except KeyError:
+        raise ValueError('%s%s is not a known suffix' % (bend, lend))
+    return np.dtype((descr, shape))
 
 
-sfx_remap = dict(STA='int1')
+def _suffix_from_dtype(data, shape=None, multiple_records=False):
+    """
+    return the string file suffix for a file given the data type object representing one record
+    :param data: numpy dtype or array
+    :param shape: if data is a simple type (numpy.int32 for instance) then this is shape of a record
+    :param multiple_records: if data is an array, this determines whether to treat the first dimension as the record dimension
+    :returns: string file suffix without '.' on front, e.g. "real4.20.10"
+    """
+    if isinstance(data, np.ndarray):
+        data = np.dtype((data.dtype, data.shape[1:] if multiple_records else data.shape))
+    elif not isinstance(data, np.dtype) and (shape is not None):
+        data = np.dtype((data, shape))
+    elif not isinstance(data, np.dtype):
+        data = np.dtype((data, 1))
 
-RE_FBF = re.compile(r'^.*?\.[A-Za-z]\w+(?:\.\d+)*$')
+    subd = data.subdtype
+    if not subd:
+        descr, = data.base.descr
+        shape = []
+    else:
+        descr, = subd[0].base.descr
+        shape = subd[1]
+    typestring = descr[1]
 
-# Try to figure out the system's native byte order, defaulting to little-endian if unknown
-try:
-    BYTEORDER = sys.byteorder
-except AttributeError:
-    import struct
-    testbytes = struct.pack( '=l', 0xabcd )
-    if struct.pack( '<l', 0xabcd ) == testbytes:   BYTEORDER = 'little'
-    elif struct.pack( '>l', 0xabcd ) == testbytes: BYTEORDER = 'big'
-    else: 
-        LOG.warning("Unable to identify byte order, defaulting to 'little'.")
-        BYTEORDER = 'little'
-
-FBF_ENDIAN['native'] = FBF_ENDIAN['='] = FBF_ENDIAN[ BYTEORDER ]
-
-# reporting format for FBF object
-FBF_FMT = """< FBF object:
-pathname: %(pathname)s
-stemname: %(stemname)s
-filename: %(filename)s
-dirname : %(dirname)s
-type    : %(type)s
-grouping: %(grouping)s
-byteorder: %(byteorder)s
-array_type: %(array_type)s
-element_size: %(element_size)s
-record_size: %(record_size)s >""" 
-
-class FbfWarning(UserWarning):
-    pass
+    assert(typestring[0] in '<|>')
+    suffix = TYPESTRING_TO_SUFFIX[typestring[1:]]
+    if typestring[0]=='>' or (typestring[0]=='|' and sys.byteorder=='big'):
+        suffix = suffix.upper()
+    if shape:
+        suffix += '.' + '.'.join(map(str, reversed(shape)))
+    return suffix
 
 
-def filename(stem, dtype, shape=None):
+class TestBasics(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_suffix(self):
+        sfx = _suffix_from_dtype(np.float64, (10,20))
+        self.assertEqual(sfx, 'real8.20.10')
+
+    def test_array2suffix(self):
+        t = np.dtype(('f8', (20, 10)))
+        a = np.zeros((5,), dtype=t)
+        sfx = _suffix_from_dtype(a)
+        self.assertEqual(sfx, 'real8.10.20.5')
+        sfx = _suffix_from_dtype(a, multiple_records=True)
+        self.assertEqual(sfx, 'real8.10.20')
+
+    def test_dtype(self):
+        m = RE_FILENAME.match('foo.real8.10.20')
+        dt = _dtype_from_regex_groups(**m.groupdict())
+        a = np.zeros((5,), dt)
+        self.assertEqual(a.shape, (5,20,10))
+        self.assertEqual(a.dtype, np.float64)
+
+
+
+
+
+
+
+
+def filename(stem, dtype, shape=None, multiple_records=False):
     """build a filename, given a stem, element datatype, and record array shape
     filename('mydata', data.dtype, data.shape)
     """
-    typename = SDTYPE_TO_SUFFIX[str(dtype)]
-    fn = '%s.%s' % ( stem, FBF_ENDIAN[BYTEORDER](typename) )
-    if shape is not None:
-        shape = tuple(shape)
-    if shape is None or shape == (1,):
-        return fn
-    return fn + '.' + '.'.join(str(x) for x in reversed(shape))
+    suffix = _suffix_from_dtype(dtype, shape, multiple_records)
+    return stem + '.' + suffix
 
 
-def array_product(a):
-    LOG.debug("input to array_product: %s" % repr(a))
-    if len(a) == 0: return 1
-    elif len(a) == 1: return a[0]
+BYTE_ORDER_BIG = ('<', str.lower)
+BYTE_ORDER_LITTLE = ('>', str.upper)
+BYTE_ORDER_NATIVE = BYTE_ORDER_BIG if sys.byteorder == 'big' else BYTE_ORDER_LITTLE
+
+
+BYTE_ORDER_TABLE = {'big': BYTE_ORDER_BIG,
+                   'little': BYTE_ORDER_LITTLE,
+                   '>': BYTE_ORDER_BIG,
+                   '<': BYTE_ORDER_LITTLE
+}
+
+
+def _dtype_from_path(pathname):
+    """
+    pull the numpy dtype out of a pathname
+    :param pathname: path to look at
+    :return: record dtype
+    """
+    dn,fn = os.path.split(pathname)
+    return _dtype_from_regex_groups(**RE_FILENAME.match(fn).groupdict())
+
+
+def _construct_from_options(stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder=None):
+    """
+    Convert a creation specification into a (pathname, record-dtype) pair
+    :param stem_or_filename: /path/to/name.real4, name.real4, or name
+    :param typename: FBF type name, e.g. 'real4', in the case that stem_or_filename doesn't include it
+    :param grouping: tuple of dimensions in access order, e.g. (768,1024) for a 1024w X 768h image array with rows contiguous
+    :param dirname: where to place the file if it's being created and not already part of filename
+    :param byteorder: 'native', 'big' or '>', 'little' or '<', default is native
+    """
+    dn, fn = os.path.split(stem_or_filename)
+    nfo = {'stem': fn, 'lend': None, 'bend': None, 'dims': None}
+    m = RE_FILENAME.match(fn)
+    if m:
+        nfo.update(m.groupdict())
+
+    if dirname:
+        dn = dirname
+
+    order_code, order_convert = BYTE_ORDER_TABLE.get(byteorder, BYTE_ORDER_NATIVE)
+    sfx = order_convert(typename or nfo['lend'] or nfo['bend'])
+
+    if grouping is not None:
+        dims = '.'.join(str(x) for x in reversed(grouping))
     else:
-        return reduce( lambda x,y: x*y, a ) # product of all dimensions
+        dims = nfo['dims']
+
+    # final filename
+    fn = nfo['stem'] + '.' + sfx
+    if dims:
+        fn += '.' + dims
+
+    # now that we've integrated all the parts, let's get a record dtype out of it
+    my_dtype = _dtype_from_path(fn)
+
+    return os.path.join(dn, fn), my_dtype
 
 
-class FBF(object):
+def _records_in_file(pathname, record_dtype = None):
+    """
+    return the number of records in a file, requiring that it exists
+    :param pathname: flat binary file to look at
+    :param record_dtype: numpy dtype used per record
+    """
+    if record_dtype is None:
+        record_dtype = _dtype_from_path(pathname)
+    return int(os.stat(pathname).st_size / record_dtype.itemsize)
+
+
+def memmap(path, mode='r', records=1):
+    """
+    memory-map a FBF file as a numpy.memmap object
+    :param path: file to open or create
+    :param mode: 'r', 'w', 'r+', 'c'
+    :param records: if new file, number of records to create it with
+    :return: numpy memmap object
+    """
+    dtype = _dtype_from_path(path)
+    records = _records_in_file()
+
+    exists = os.path.exists(path)
+    writable = 'w' in mode or '+' in mode
+    if not exists:
+        if not writable:
+            raise ValueError('{0} does not exist'.format(path))
+        shape = (records,)
+    else:
+        shape = (_records_in_file(path, dtype), )
+
+    return np.memmap(path, dtype=dtype, mode=mode, shape=shape)
+
+
+class FBF(np.memmap):
     # filename attributes
-    pathname = None  # full path (redundant?)
-    dirname = None
-    filename = None
-    stemname = None  # filename before suffix (redundant?)
 
-    # byte order attributes
-    grouping = None
-    byteorder = None  # 'big', 'little'  (redundant)
-    endian = None  # struct '>' or '<'
-    flip_bytes = False  # bool (redundant?)
-
-    # array attributes
-    element_size = 0  # int
-    record_elements = 0  # int
-    record_size = None  # int (redundant)
-    array_type = None  # struct code (redundant)
-    type = None  # str: real4, int8, etc
-    dtype = None  # numpy dtype (redundant)
-
-    # file attributes
-    pending_flush = False  # bool, whether or not a .flush is needed prior to checking file length
-    file = None # file object
-    mode = None # open() mode, e.g. 'rb'
-    mmap = None # mmap object
-    mmap_length = 0 # number of records available in mmap (redundant?)
-    data = None # numpy object representing mmap
-
-
-    def __init__( self, stem_or_filename=None, typename=None, grouping=None, dirname='.', byteorder='native' ):
-        if not stem_or_filename:
-            raise FbfWarning('FBF object must be instantiated with at least a filename')
-        elif not typename:
-            self.attach( stem_or_filename )
+    def __new__(cls, stemname, typename, grouping=None, dirname=None, byteorder=None, writable=False):
+        path, dtype = _construct_from_options(stemname, typename, grouping, dirname, byteorder)
+        exists = os.path.exists(path)
+        if not exists:
+            if not writable:
+                raise EnvironmentError('{0} does not exist'.format(path))
+            mode = 'w+b'
+            shape = (1,)
         else:
-            # generate a new FBF object, file will need to be explicitly created.
-            if not grouping:
-                self.grouping = [1]
-            self.build( stem_or_filename, typename, grouping, dirname, byteorder )
-    
-    def attach( self, pathname ):
-        '''Attach object to existing file on disk'''
-        if not RE_FBF.match(pathname):
-            raise ValueError('%s is not a valid FBF pathname' % pathname)
-        self.pathname = pathname
-        self.dirname, self.filename = os.path.split( pathname )
-        if not self.dirname: self.dirname = '.'
-        
-        parts = self.filename.split('.')
-        
-        self.stemname = parts[0]
-        fbftype = sfx_remap.get(parts[1].upper(), parts[1])
-        self.grouping = [ int(x) for x in parts[2:] ]
-        if not self.grouping:
-            self.grouping = [1]
-        
-        if fbftype.isupper(): 
-            self.byteorder='big'
-            self.endian='>'
-        else: 
-            self.byteorder='little'
-            self.endian='<'
-        
-        self.flip_bytes = (self.byteorder != BYTEORDER)
-        try:
-            self.element_size = int(re.findall('\d+',fbftype)[0])
-        except IndexError:
-            raise ValueError('cannot attach %s as valid FBF' % pathname)
-        self.record_elements = array_product(self.grouping)
-        self.record_size = self.element_size * self.record_elements        
-        self.array_type = fbf_encodings[fbftype]
-        self.type = fbftype.lower()
-        self.dtype = SUFFIX_TO_DTYPE[self.type]
-        self.pending_flush = False
-        
-        return self
-    
-    def build(self, stemname, typename, grouping=None, dirname='.', byteorder='native' ):
-        '''build an FBF descriptor object from scratch.'''
-        
-        filename = '%s.%s' % ( stemname, FBF_ENDIAN[byteorder]( typename ) )
-        if grouping and grouping != [1]: 
-            filename += '.' + '.'.join( str(x) for x in grouping )
-        
-        self.attach( os.path.join( dirname, filename ) ) 
-    
-    def __str__(self):
-        return FBF_FMT % vars(self)
-    
-    def fp(self, mode='rb'):
-        fob = getattr(self, 'file', None)
-        if not fob: 
-            fob = self.file = open(self.pathname, mode)
-            self.mode = mode
-        return fob
-    
-    def open( self, mode='rb' ): 
-        self.file = self.fp(mode)
-        return self.file
-    
-    def create( self, mode='w+b' ):
-        self.file = self.fp(mode)
-        return self.file
+            mode ='rb' if not writable else 'r+b'
+            shape = (_records_in_file(path, dtype), )
 
-    def _flush_if_needed(self):
-        if self.pending_flush and self.file:
-            self.file.flush()
-            self.pending_flush = False
+        return np.memmap.__new__(cls, path, dtype=dtype, mode=mode, shape=shape)
+
+
+    def attach( self, pathname ):
+        raise NotImplementedError('deprecated, attachment happens at instantiation')
+        return self
+
+    build = attach
+    open = attach
+    create = attach
+    open = attach
+
+    def __len__(self):
+        return self.shape[0]
+
+
+    def open( self, mode='rb' ):
+        pass
+
+    def create( self, mode='w+b' ):
+        pass
 
     def close( self ):
-        self._flush_if_needed()
-        if not self.file:
-            return 1
-        self.file = None
         return 0
 
     def length( self ):
-        self._flush_if_needed()
-        return int(os.stat(self.pathname).st_size / self.record_size)
-    
+        # return int(os.stat(self.pathname).st_size / self.record_size)
+        pass
+
     def __len__( self ):
         return self.length()
     
@@ -249,18 +274,18 @@ class FBF(object):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
         length = self.length()
-        if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
-            fp = self.fp()
-            fp.seek(0)
-            shape = [length] + self.grouping[::-1]
-            LOG.debug('mapping with shape %r' % shape)
-            if '+' in self.mode or 'w' in self.mode:
-                access = mmap.ACCESS_WRITE
-            else:
-                access = mmap.ACCESS_READ
-            self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
-            self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
-            self.mmap_length = length
+        # if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
+        #     fp = self.fp()
+        #     fp.seek(0)
+        #     shape = [length] + self.grouping[::-1]
+        #     LOG.debug('mapping with shape %r' % shape)
+        #     if '+' in self.mode or 'w' in self.mode:
+        #         access = mmap.ACCESS_WRITE
+        #     else:
+        #         access = mmap.ACCESS_READ
+        #     self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
+        #     self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
+        #     self.mmap_length = length
 #             if self.flip_bytes: 
 #                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
@@ -314,7 +339,6 @@ def write( fbf, idx, data ):
     '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
     The index is a 1-based int (as in Fortran and Matlab). 
     Data must be an appropriately shaped and typed numpy array'''
-    # FIXME: can only write in native byte order as far as I can tell.
     # FIXME: needs to convert to expected format, array order and contiguity, or raise an error on bad content
     if isinstance( fbf, str ): fbf = FBF(fbf)
     if ( array_product(data.shape) % fbf.record_elements ) != 0:
@@ -343,9 +367,9 @@ FBF.write = write
 FBF.block_write = block_write
 
 def test():
-    import doctest
     logging.basicConfig(level = logging.DEBUG)
-    doctest.testfile( "numfbf.doctest" )
+    # doctest.testfile( "numfbf.doctest" )
+    unittest.main()
     
 if __name__ == '__main__':
     test()
