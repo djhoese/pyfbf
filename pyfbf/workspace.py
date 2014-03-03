@@ -8,7 +8,7 @@ Flat binary workspace object
 
 import os,glob
 
-from .numfbf import *
+from .memfbf import *
 
 # FUTURE: workspace should return numpy.memmap arrays
 

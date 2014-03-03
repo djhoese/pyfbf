@@ -92,34 +92,6 @@ def _suffix_from_dtype(data, shape=None, multiple_records=False):
     return suffix
 
 
-class TestBasics(unittest.TestCase):
-    def setUp(self):
-        pass
-
-    def test_suffix(self):
-        sfx = _suffix_from_dtype(np.float64, (10,20))
-        self.assertEqual(sfx, 'real8.20.10')
-
-    def test_array2suffix(self):
-        t = np.dtype(('f8', (20, 10)))
-        a = np.zeros((5,), dtype=t)
-        sfx = _suffix_from_dtype(a)
-        self.assertEqual(sfx, 'real8.10.20.5')
-        sfx = _suffix_from_dtype(a, multiple_records=True)
-        self.assertEqual(sfx, 'real8.10.20')
-
-    def test_dtype(self):
-        m = RE_FILENAME.match('foo.real8.10.20')
-        dt = _dtype_from_regex_groups(**m.groupdict())
-        a = np.zeros((5,), dt)
-        self.assertEqual(a.shape, (5,20,10))
-        self.assertEqual(a.dtype, np.float64)
-
-
-
-
-
-
 
 
 def filename(stem, dtype, shape=None, multiple_records=False):
@@ -150,6 +122,46 @@ def _dtype_from_path(pathname):
     """
     dn,fn = os.path.split(pathname)
     return _dtype_from_regex_groups(**RE_FILENAME.match(fn).groupdict())
+
+
+
+
+
+class TestBasics(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_suffix(self):
+        sfx = _suffix_from_dtype(np.float64, (10,20))
+        self.assertEqual(sfx, 'real8.20.10')
+
+    def test_array2suffix(self):
+        t = np.dtype(('f8', (20, 10)))
+        a = np.zeros((5,), dtype=t)
+        sfx = _suffix_from_dtype(a)
+        self.assertEqual(sfx, 'real8.10.20.5')
+        sfx = _suffix_from_dtype(a, multiple_records=True)
+        self.assertEqual(sfx, 'real8.10.20')
+
+    def test_dtype(self):
+        m = RE_FILENAME.match('foo.real8.10.20')
+        dt = _dtype_from_regex_groups(**m.groupdict())
+        a = np.zeros((5,), dt)
+        self.assertEqual(a.shape, (5,20,10))
+        self.assertEqual(a.dtype, np.float64)
+
+    def test_more(self):
+        q = np.dtype(('f8', (20, 10)))
+        a = np.zeros((5,), dtype=q)
+        fn = filename('foo', a, multiple_records=True)
+        self.assertEqual('foo.real8.10.20', fn)
+        t = _dtype_from_path('/path/to/myfile.REAL8.20.10')
+        fn = filename('foo', t, (15,))
+        self.assertEqual('foo.REAL8.20.10', fn)
+        fn = filename('foo', np.int16, (30, 90))
+        self.assertEqual('foo.int2.90.30', fn)
+
+
 
 
 def _construct_from_options(stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder=None):
@@ -223,77 +235,124 @@ def memmap(path, mode='r', records=1):
     return np.memmap(path, dtype=dtype, mode=mode, shape=shape)
 
 
-class FBF(np.memmap):
-    # filename attributes
+class FBF(object):
+    """
+    FBF wrapper class which provides writable slicing of FBF files via numpy memory mapping.
+    Intended to be backwards compatible with older use patterns, and supplement with out-of-bound implicit file expansion for writable case.
+    If you're writing new code and only want read-only, consider just using memfbf.memmap
 
-    def __new__(cls, stemname, typename, grouping=None, dirname=None, byteorder=None, writable=False):
-        path, dtype = _construct_from_options(stemname, typename, grouping, dirname, byteorder)
-        exists = os.path.exists(path)
-        if not exists:
-            if not writable:
-                raise EnvironmentError('{0} does not exist'.format(path))
-            mode = 'w+b'
-            shape = (1,)
-        else:
-            mode ='rb' if not writable else 'r+b'
-            shape = (_records_in_file(path, dtype), )
+    """
+    path = None  # full path
+    dtype = None  # numpy record dtype
+    writable = False
+    data = None
 
-        return np.memmap.__new__(cls, path, dtype=dtype, mode=mode, shape=shape)
 
+    def __init__( self, stem_or_filename=None, typename=None, grouping=None, dirname='.', byteorder='native', writable=False ):
+        """
+        Create an FBF object
+        :param stem_or_filename:
+        :param typename:
+        :param grouping:
+        :param dirname:
+        :param byteorder:
+        :param writable:
+        """
+        self.writable = writable
+        if stem_or_filename is not None:
+            self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
+            if os.path.exists(self.path):
+                self.data = memmap(self.path, 'r+' if self.writable else 'r')
 
     def attach( self, pathname ):
-        raise NotImplementedError('deprecated, attachment happens at instantiation')
-        return self
+        '''Attach object to existing file on disk
+        :param pathname:
+        '''
+        self.path = pathname
+        self.dtype = _dtype_from_path(pathname)
+        if os.path.exists(self.path):
+            self.data = memmap(self.path, 'r+' if self.writable else 'r')
 
-    build = attach
-    open = attach
-    create = attach
-    open = attach
 
-    def __len__(self):
-        return self.shape[0]
+    def build(self, stem_or_filename, typename, grouping=None, dirname='.', byteorder='native', writable=False ):
+        '''build an FBF descriptor object from scratch.
+        :param stem_or_filename:
+        :param typename:
+        :param grouping:
+        :param dirname:
+        :param byteorder:
+        :param writable:
+        '''
+        self.writable = writable
+        self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
 
+        filename = '%s.%s' % ( stemname, FBF_ENDIAN[byteorder]( typename ) )
+        if grouping and grouping != [1]:
+            filename += '.' + '.'.join( str(x) for x in grouping )
+
+        self.attach( os.path.join( dirname, filename ) )
+
+    def __str__(self):
+        return FBF_FMT % vars(self)
+
+    def fp(self, mode='rb'):
+        fob = getattr(self, 'file', None)
+        if not fob:
+            fob = self.file = open(self.pathname, mode)
+            self.mode = mode
+        return fob
 
     def open( self, mode='rb' ):
-        pass
+        self.file = self.fp(mode)
+        return self.file
 
     def create( self, mode='w+b' ):
-        pass
+        self.file = self.fp(mode)
+        return self.file
+
+    def _flush_if_needed(self):
+        if self.pending_flush and self.file:
+            self.file.flush()
+            self.pending_flush = False
 
     def close( self ):
+        self._flush_if_needed()
+        if not self.file:
+            return 1
+        self.file = None
         return 0
 
     def length( self ):
-        # return int(os.stat(self.pathname).st_size / self.record_size)
-        pass
+        self._flush_if_needed()
+        return int(os.stat(self.pathname).st_size / self.record_size)
 
     def __len__( self ):
         return self.length()
-    
+
     def __getitem__( self, idx ):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
         length = self.length()
-        # if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
-        #     fp = self.fp()
-        #     fp.seek(0)
-        #     shape = [length] + self.grouping[::-1]
-        #     LOG.debug('mapping with shape %r' % shape)
-        #     if '+' in self.mode or 'w' in self.mode:
-        #         access = mmap.ACCESS_WRITE
-        #     else:
-        #         access = mmap.ACCESS_READ
-        #     self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
-        #     self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
-        #     self.mmap_length = length
-#             if self.flip_bytes: 
+        if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
+            fp = self.fp()
+            fp.seek(0)
+            shape = [length] + self.grouping[::-1]
+            LOG.debug('mapping with shape %r' % shape)
+            if '+' in self.mode or 'w' in self.mode:
+                access = mmap.ACCESS_WRITE
+            else:
+                access = mmap.ACCESS_READ
+            self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
+            self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
+            self.mmap_length = length
+#             if self.flip_bytes:
 #                 self.data.dtype = self.data.dtype.newbyteorder()
                 # hack: register byte order as swapped in the numpy array without flipping any actual bytes
 
         #LOG.debug("len: %s grouping: %s" % (self.length(),self.grouping))
         #LOG.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
         return self.data[idx]
-    
+
 
 def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
     """
@@ -337,8 +396,9 @@ def extract_indices_to_file( inp, indices, out_file ):
 
 def write( fbf, idx, data ):
     '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
-    The index is a 1-based int (as in Fortran and Matlab). 
+    The index is a 1-based int (as in Fortran and Matlab).
     Data must be an appropriately shaped and typed numpy array'''
+    # FIXME: can only write in native byte order as far as I can tell.
     # FIXME: needs to convert to expected format, array order and contiguity, or raise an error on bad content
     if isinstance( fbf, str ): fbf = FBF(fbf)
     if ( array_product(data.shape) % fbf.record_elements ) != 0:
@@ -358,13 +418,16 @@ def block_write( fbf, idx, data ):
     DEPRECATED: block write to a file using one-based indexing
     """
     return write( fbf, idx, data )
-    
+
 def info(name):
     return FBF(name)
 
 FBF.read = read
 FBF.write = write
 FBF.block_write = block_write
+
+
+
 
 def test():
     logging.basicConfig(level = logging.DEBUG)
