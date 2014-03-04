@@ -328,6 +328,7 @@ class FBF(object):
     def length( self ):
         if self.data is not None:
             self.data.flush()
+            return self.data.shape[0]
         return _records_in_file(self.path, self.dtype)
 
 
@@ -373,18 +374,23 @@ class FBF(object):
                 self.data.flush()
             else:
                 raise IOError('file {0} does not exist'.format(self.path))
+        else:
+            length = _records_in_file(self.path, self.dtype)
+            new_shape = None
+            if self.data.shape[0]<length:
+                new_shape = (length,) + self.data.shape[1:]
 
-        length = self.length()
-        records_required = self._slice_records_required(idx, length)
+            records_required = self._slice_records_required(idx, length)
+            if records_required>length:
+                if self.writable:
+                    new_shape = (records_required,) + self.data.shape[1:]
+                else:
+                    raise IndexError('cannot index beyond record {0}'.format(length))
 
-        LOG.debug("need {0} records".format(records_required))
-        if records_required > length:
-            if not self.writable:
-                raise ValueError('cannot expand read-only file to {0} records'.format(records_required))
-            new_shape = (records_required,) + self.data.shape[1:]
-            LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
-            self.data.flush()
-            self.data.resize(new_shape)
+            if new_shape is not None:
+                LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
+                self.data.flush()
+                self.data.resize(new_shape)
 
     def __getitem__(self, idx):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
