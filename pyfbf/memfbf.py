@@ -179,9 +179,14 @@ def _construct_from_options(stem_or_filename=None, typename=None, grouping=None,
 
     if dirname:
         dn = dirname
+    if not dn:
+        dn = '.'
 
     order_code, order_convert = BYTE_ORDER_TABLE.get(byteorder, BYTE_ORDER_NATIVE)
-    sfx = order_convert(typename or nfo['lend'] or nfo['bend'])
+    sfx = typename or nfo['lend'] or nfo['bend']
+    if not sfx:
+        raise ValueError('{0} is an invalid suffix'.format(sfx))
+    sfx = order_convert(sfx)
 
     if grouping is not None:
         dims = '.'.join(str(x) for x in reversed(grouping))
@@ -247,7 +252,7 @@ class FBF(object):
     writable = False # True/False whether we're allowed to write to the file
     data = None # when not None, a numpy memmap object representing some or all the file
 
-    def __init__(self, stem_or_filename=None, typename=None, grouping=None, dirname='.', byteorder='native',
+    def __init__(self, stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder='native',
                  writable=False):
         """
         Create an FBF object
@@ -261,8 +266,6 @@ class FBF(object):
         self.writable = writable
         if stem_or_filename is not None:
             self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
-            if os.path.exists(self.path):  # then we can open it right now, else we have to wait for a writable slice?
-                self.data = memmap(self.path, 'r+' if self.writable else 'r')
 
     def attach(self, pathname, writable = None):
         """
@@ -278,7 +281,7 @@ class FBF(object):
             self.data = memmap(self.path, 'r+' if self.writable else 'r')
         raise DeprecationWarning('FBF.attach is deprecated, use constructor')
 
-    def build(self, stem_or_filename, typename, grouping=None, dirname='.', byteorder='native', writable=False):
+    def build(self, stem_or_filename, typename, grouping=None, dirname=None, byteorder='native', writable=False):
         """
         Deprecated. Initialize an FBF after creation.
         :param stem_or_filename: filename to open, or stem to start with
@@ -292,9 +295,9 @@ class FBF(object):
         self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
         raise DeprecationWarning('FBF.build is deprecated, use constructor')
 
-    def __str__(self):
-        shape = self.data.shape if self.data is not None else 'empty'
-        return "<FBF '{0}' shape {1} dtype {2}>".format(self.path, shape, str(self.dtype))
+    def __repr__(self):
+        shape = self.data.shape if self.data is not None else 'unopened'
+        return "FBF({0}, shape={1}, dtype={2}, records={3})".format(repr(self.path), repr(shape), repr(self.dtype), _records_in_file(self.path, self.dtype))
 
     def fp(self, mode='rb'):
         raise NotImplementedError('FBF.fp is deprecated')
@@ -458,6 +461,12 @@ class FBF(object):
             self.open()
         return self.data.shape
 
+    @property
+    def stemname(self):
+        dn,fn = os.path.split(self.path)
+        m = RE_FILENAME.match(fn)
+        return m.groupdict()['stem']
+
 
 def build(stemname, typename, grouping=None, dirname='.', byteorder='native', writable=True):
     """
@@ -567,6 +576,7 @@ class TestFBF(unittest.TestCase):
         a = np.array([float(x) / 2 for x in range(45)], 'f').reshape((3, 15))
         foo[0:3] = a
         self.assertEqual(3, len(foo))
+        self.assertEqual(foo.stemname, 'foo')
         del foo
         foo = FBF('foo.real4.15')
         self.assertTrue((foo[0:3] == a).all())
@@ -574,6 +584,10 @@ class TestFBF(unittest.TestCase):
             q = foo[4]
         self.assertTrue((read(foo.path, 1, -1) == a).all())
         os.unlink(foo.path)
+
+    def test_malformed(self):
+        with self.assertRaises(ValueError):
+            foo = FBF('any.txt')
 
 
 def test():

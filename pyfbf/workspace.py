@@ -6,38 +6,42 @@ Flat binary workspace object
 
 """
 
-import os,glob
-
+import glob, unittest
 from .memfbf import *
 
-# FUTURE: workspace should return numpy.memmap arrays
 
 class Workspace(object):
+    _vars = None
+    _dir = None
+
     def __init__(self, dir='.'):
-        self._dir=dir
+        self._dir = dir
+        self._vars = dict(self._scan_vars())
 
     def var(self, name):
-        g = glob.glob( os.path.join(self._dir, (name + '.*') if '.' not in name else name) )
-        if len(g)==1:
-            fp = FBF(g[0])
-            fp.open()
-            setattr(self,fp.stemname,fp)
-            return fp
-        raise AttributeError("%s not in workspace" % name)
-    
-    def vars(self):
+        v = self._vars.get(name, None)
+        if v is not None:
+            return v
+        g = glob.glob(os.path.join(self._dir, (name + '.*') if '.' not in name else name))
+        if len(g) == 1:
+            fbf = FBF(g[0])
+            fbf.open()
+            self._vars[fbf.stemname] = fbf
+            return fbf
+        raise AttributeError("{0:s} not in workspace".format(name))
 
+    def _scan_vars(self):
         for path in os.listdir(self._dir):
             try:
-                x = info(path)
+                x = FBF(os.path.join(self._dir, path))
                 yield x.stemname, x
             except ValueError:
                 pass
-            
-    def variables(self):
-        return dict(self.vars())
 
-    def __getitem__(self,name):
+    def variables(self):
+        return self._vars
+
+    def __getitem__(self, name):
         return self.var(name)
 
     def __getattr__(self, name):
@@ -49,12 +53,27 @@ class Workspace(object):
             Raises an EnvironmentError if there is a collision.
         """
         raise NotImplementedError('Not Yet Implemented')
-        
 
-    
-if __name__=='__main__':
+
+TEST_WORKSPACE = '/tmp/test_workspace'
+
+
+class TestWorkspace(unittest.TestCase):
+    def test_simple(self):
+        self.assertTrue(os.path.exists(TEST_WORKSPACE))
+        from pprint import pprint
+
+        ws = Workspace(TEST_WORKSPACE)
+        pprint(ws.variables())
+
+
+if __name__ == '__main__':
     from sys import argv
-    where = '.' if len(argv)==1 else argv[1]
-    q = Workspace(where)
-    from pprint import pprint
-    pprint(dict((x,str(y).split('\n')) for (x,y) in q.vars()))
+
+    if len(argv) == 2:
+        q = Workspace(argv[1])
+        from pprint import pprint
+
+        pprint(dict((x, str(y).split('\n')) for (x, y) in q.variables().items()))
+    else:
+        unittest.main()
