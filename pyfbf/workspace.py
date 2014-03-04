@@ -1,9 +1,6 @@
 """
 Flat binary workspace object
 
-
-
-
 """
 
 import glob, unittest
@@ -11,14 +8,26 @@ from .memfbf import *
 
 
 class Workspace(object):
+    """
+    A workspace provides a convenient way to access a directory of FBF files as workspace.['name'] or workspace.name syntax.
+    """
     _vars = None
     _dir = None
 
     def __init__(self, dir='.'):
+        """
+        Initialize a workspace with a directory, capturing the initial list of variables in the workspace.
+        :param dir: path to a directory to scan
+        """
         self._dir = dir
         self._vars = dict(self._scan_vars())
 
     def var(self, name):
+        """
+        return an FBF object for the given stem or filename.
+        :param name: variable stem or filename
+        :return: FBF object
+        """
         v = self._vars.get(name, None)
         if v is not None:
             return v
@@ -39,6 +48,10 @@ class Workspace(object):
                 pass
 
     def variables(self):
+        """
+        Get the dictionary of variables found in the workspace at creation time
+        :return: dict
+        """
         return self._vars
 
     def __getitem__(self, name):
@@ -66,8 +79,7 @@ class TestWorkspace(unittest.TestCase):
         ws = Workspace(TEST_WORKSPACE)
         pprint(ws.variables())
 
-
-if __name__ == '__main__':
+def main():
     from sys import argv
 
     if len(argv) == 2:
@@ -77,3 +89,7 @@ if __name__ == '__main__':
         pprint(dict((x, str(y).split('\n')) for (x, y) in q.variables().items()))
     else:
         unittest.main()
+
+
+if __name__ == '__main__':
+    main()
