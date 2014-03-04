@@ -286,7 +286,9 @@ class FBF(object):
 
 
     def __str__(self):
-        return FBF_FMT % vars(self)
+        shape = self.data.shape if self.data is not None else 'empty'
+        return "<FBF '{0}' shape {1} dtype {2}>".format(self.path, shape, str(self.dtype))
+
 
     def fp(self, mode='rb'):
         raise NotImplementedError('deprecated operation')
@@ -327,28 +329,33 @@ class FBF(object):
         return self.length()
 
 
-    def __getitem__( self, idx ):
+    def __getitem__(self, idx):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
-        length = self.length()
         if self.data is None:
-            shape = self.data.shape
-            LOG.debug('mapping with shape %r' % shape)
-
-            if '+' in self.mode or 'w' in self.mode:
-                access = mmap.ACCESS_WRITE
+            if os.path.exists(self.path):
+                self.open()
+            elif self.writable:
+                idxs = self._slice_indices(idx, 0)
+                records_required = 1 + max(idxs)
+                self.open(records=records_required)
+                self.data.flush()
             else:
-                access = mmap.ACCESS_READ
-            self.mmap = mmap.mmap(fp.fileno(), 0, access=access)
-            self.data = numpy.ndarray( buffer = self.mmap, shape=shape, dtype=self.endian + self.array_type )
-            self.mmap_length = length
-#             if self.flip_bytes:
-#                 self.data.dtype = self.data.dtype.newbyteorder()
-                # hack: register byte order as swapped in the numpy array without flipping any actual bytes
+                raise IOError('file {0} does not exist'.format(self.path))
 
-        #LOG.debug("len: %s grouping: %s" % (self.length(),self.grouping))
-        #LOG.debug("data shape: %s returned: %s" % (self.data.shape,self.data[idx].shape))
+        length = self.length()
+        idxs = self._slice_indices(idx, length)
+        records_required = 1 + max(idxs)
+        if records_required > length:
+            if not self.writable:
+                raise ValueError('cannot expand read-only file to {0} records'.format(records_required))
+            new_shape = (records_required,) + self.data.shape[1:]
+            LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
+            self.data.flush()
+            self.data.resize(new_shape)
+
         return self.data[idx]
+
 
 
 def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
