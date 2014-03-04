@@ -55,7 +55,7 @@ def _dtype_from_regex_groups(stem=None, lend=None, dims=None, bend=None):
         else:
             raise ValueError('no suffix provided??')
     except KeyError:
-        raise ValueError('%s%s is not a known suffix' % (bend, lend))
+        raise ValueError('%s%s is not a known suffix' % (bend or '', lend or ''))
     return np.dtype((descr, shape))
 
 
@@ -221,13 +221,11 @@ def memmap(path, mode='r', records=1):
     :return: numpy memmap object
     """
     dtype = _dtype_from_path(path)
-    records = _records_in_file()
-
     exists = os.path.exists(path)
-    writable = 'w' in mode or '+' in mode
+
     if not exists:
-        if not writable:
-            raise ValueError('{0} does not exist'.format(path))
+        if 'w' not in mode:
+            raise ValueError('{0} does not exist, use "w" mode to create new file'.format(path))
         shape = (records,)
     else:
         shape = (_records_in_file(path, dtype), )
@@ -247,7 +245,6 @@ class FBF(object):
     writable = False
     data = None
 
-
     def __init__( self, stem_or_filename=None, typename=None, grouping=None, dirname='.', byteorder='native', writable=False ):
         """
         Create an FBF object
@@ -261,8 +258,9 @@ class FBF(object):
         self.writable = writable
         if stem_or_filename is not None:
             self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
-            if os.path.exists(self.path):
+            if os.path.exists(self.path): # then we can open it right now, else we have to wait for a writable slice?
                 self.data = memmap(self.path, 'r+' if self.writable else 'r')
+
 
     def attach( self, pathname ):
         '''Attach object to existing file on disk
@@ -286,58 +284,57 @@ class FBF(object):
         self.writable = writable
         self.path, self.dtype = _construct_from_options(stem_or_filename, typename, grouping, dirname, byteorder)
 
-        filename = '%s.%s' % ( stemname, FBF_ENDIAN[byteorder]( typename ) )
-        if grouping and grouping != [1]:
-            filename += '.' + '.'.join( str(x) for x in grouping )
-
-        self.attach( os.path.join( dirname, filename ) )
 
     def __str__(self):
         return FBF_FMT % vars(self)
 
     def fp(self, mode='rb'):
-        fob = getattr(self, 'file', None)
-        if not fob:
-            fob = self.file = open(self.pathname, mode)
-            self.mode = mode
-        return fob
+        raise NotImplementedError('deprecated operation')
 
-    def open( self, mode='rb' ):
-        self.file = self.fp(mode)
-        return self.file
 
-    def create( self, mode='w+b' ):
-        self.file = self.fp(mode)
-        return self.file
+    def open( self, mode=None, records=1 ):
+        exists = os.path.exists(self.path)
+        if mode is None:
+            if exists and self.writable:
+                mode = 'r+'
+            elif exists and not self.writable:
+                mode = 'r'
+            elif not exists and self.writable:
+                mode = 'w+'
+            else:
+                raise ValueError('{0} does not exist, need mode "w" to create it' %)
+        self.data = memmap(self.path, mode, records)
+        return self
 
-    def _flush_if_needed(self):
-        if self.pending_flush and self.file:
-            self.file.flush()
-            self.pending_flush = False
+
+    def create( self, mode='w+' ):
+        return self.open(mode)
+
 
     def close( self ):
-        self._flush_if_needed()
-        if not self.file:
-            return 1
-        self.file = None
+        if self.data is None:
+            return
+        self.data.close()
         return 0
 
     def length( self ):
-        self._flush_if_needed()
-        return int(os.stat(self.pathname).st_size / self.record_size)
+        if self.data is None:
+            self.data.flush()
+        return _records_in_file(self.path, self.dtype)
+
 
     def __len__( self ):
         return self.length()
+
 
     def __getitem__( self, idx ):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
         length = self.length()
-        if not hasattr(self, 'data') or getattr(self,'mmap_length',0)!=length:
-            fp = self.fp()
-            fp.seek(0)
-            shape = [length] + self.grouping[::-1]
+        if self.data is None:
+            shape = self.data.shape
             LOG.debug('mapping with shape %r' % shape)
+
             if '+' in self.mode or 'w' in self.mode:
                 access = mmap.ACCESS_WRITE
             else:
