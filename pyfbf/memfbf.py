@@ -102,8 +102,8 @@ def filename(stem, dtype, shape=None, multiple_records=False):
     return stem + '.' + suffix
 
 
-BYTE_ORDER_BIG = ('<', str.lower)
-BYTE_ORDER_LITTLE = ('>', str.upper)
+BYTE_ORDER_LITTLE = ('<', str.lower)
+BYTE_ORDER_BIG = ('>', str.upper)
 BYTE_ORDER_NATIVE = BYTE_ORDER_BIG if sys.byteorder == 'big' else BYTE_ORDER_LITTLE
 
 
@@ -209,6 +209,8 @@ def _records_in_file(pathname, record_dtype = None):
     """
     if record_dtype is None:
         record_dtype = _dtype_from_path(pathname)
+    if not os.path.exists(pathname):
+        return 0
     return int(os.stat(pathname).st_size / record_dtype.itemsize)
 
 
@@ -304,13 +306,16 @@ class FBF(object):
             elif not exists and self.writable:
                 mode = 'w+'
             else:
-                raise ValueError('{0} does not exist, need mode "w" to create it' %)
+                raise ValueError('{0} does not exist, need mode "w" to create it'.format(self.path))
         self.data = memmap(self.path, mode, records)
         return self
 
 
-    def create( self, mode='w+' ):
-        return self.open(mode)
+    def create(self, mode='w+', records=1, clobber=True):
+        if not clobber and os.path.exists(self.path):
+            raise IOError('cannot clobber {0}'.format(self.path))
+        self.writable = True
+        return self.open(mode, records=records)
 
 
     def close( self ):
@@ -319,8 +324,9 @@ class FBF(object):
         self.data.close()
         return 0
 
+
     def length( self ):
-        if self.data is None:
+        if self.data is not None:
             self.data.flush()
         return _records_in_file(self.path, self.dtype)
 
@@ -329,9 +335,13 @@ class FBF(object):
         return self.length()
 
 
-    def __getitem__(self, idx):
-        '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
-        Index can be a regular python slice or a 0-based index'''
+    def _slice_indices(self, slob, length=None):
+        if not isinstance(slob, slice):
+            slob = slice(slob)
+        return slob.indices(length or self.length())
+
+
+    def _bring_idx(self, idx):
         if self.data is None:
             if os.path.exists(self.path):
                 self.open()
@@ -353,9 +363,17 @@ class FBF(object):
             LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
             self.data.flush()
             self.data.resize(new_shape)
+        return idxs
 
-        return self.data[idx]
+    def __getitem__(self, idx):
+        '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
+        Index can be a regular python slice or a 0-based index'''
+        idxs = self._bring_idx(idx)
+        return self.data[idxs]
 
+    def __setitem__(self, idx, value):
+        idxs = self._bring_idx(idx)
+        self.data[idxs] = value
 
 
 def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
@@ -431,12 +449,25 @@ FBF.write = write
 FBF.block_write = block_write
 
 
+class TestFBF(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_create(self):
+        fbf = FBF('foo', 'real4', [15])
+        fbf.create(records=3)
+        self.assertEqual(fbf.path, './foo.real4.15')
+        self.assertEqual(len(fbf), 3)
+        a = np.array([np.float32(x) / 2 for x in range(45)], 'f')
+        a = a.reshape([3, 15])
+        print(fbf[0])
+        fbf[0,:] = a[0,:]
 
 
 def test():
     logging.basicConfig(level = logging.DEBUG)
-    # doctest.testfile( "numfbf.doctest" )
     unittest.main()
-    
+
+
 if __name__ == '__main__':
     test()
