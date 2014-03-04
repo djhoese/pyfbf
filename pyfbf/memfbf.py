@@ -335,27 +335,49 @@ class FBF(object):
         return self.length()
 
 
-    def _slice_indices(self, slob, length=None):
+    def _slice_records_required(self, slob, length=None):
         if not isinstance(slob, slice):
             slob = slice(slob)
-        return slob.indices(length or self.length())
+        def _is_absolute(a,b):
+            if a is not None and a<0:
+                return False
+            if b is not None and b < 0:
+                return False
+            if a is None and b is None:
+                return False
+            return True
+        if self.writable and _is_absolute(slob.start, slob.stop):
+            LOG.debug('absolute and writable')
+            start, stop, step = slob.start, slob.stop, slob.step
+        else:
+            LOG.debug('relative or not writable')
+            start, stop, step = slob.indices(length or self.length())
+        def _rmax(start, stop):
+            if start is None and stop is not None:
+                return stop
+            if stop is None and start is not None:
+                return start + 1
+            if start is None and stop is None:
+                raise ValueError('cannot compare invalid slice')
+            return max(start+1, stop)
+        return _rmax(start, stop)
 
 
-    def _bring_idx(self, idx):
+    def _expose_idx(self, idx, reading=True):
         if self.data is None:
             if os.path.exists(self.path):
                 self.open()
             elif self.writable:
-                idxs = self._slice_indices(idx, 0)
-                records_required = 1 + max(idxs)
+                records_required = self._slice_records_required(idx)
                 self.open(records=records_required)
                 self.data.flush()
             else:
                 raise IOError('file {0} does not exist'.format(self.path))
 
         length = self.length()
-        idxs = self._slice_indices(idx, length)
-        records_required = 1 + max(idxs)
+        records_required = self._slice_records_required(idx, length)
+
+        LOG.debug("need {0} records".format(records_required))
         if records_required > length:
             if not self.writable:
                 raise ValueError('cannot expand read-only file to {0} records'.format(records_required))
@@ -363,17 +385,20 @@ class FBF(object):
             LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
             self.data.flush()
             self.data.resize(new_shape)
-        return idxs
 
     def __getitem__(self, idx):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
         Index can be a regular python slice or a 0-based index'''
-        idxs = self._bring_idx(idx)
-        return self.data[idxs]
+        self._expose_idx(idx)
+        return self.data[idx]
 
     def __setitem__(self, idx, value):
-        idxs = self._bring_idx(idx)
-        self.data[idxs] = value
+        self._expose_idx(idx)
+        self.data[idx] = value
+
+    @property
+    def shape(self):
+        return self.data.shape if self.data is not None else None
 
 
 def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
@@ -454,14 +479,17 @@ class TestFBF(unittest.TestCase):
         pass
 
     def test_create(self):
-        fbf = FBF('foo', 'real4', [15])
+        fbf = FBF('foo', 'real4', [15], writable=True)
         fbf.create(records=3)
+        print('shape {0}'.format(repr(fbf.shape)))
         self.assertEqual(fbf.path, './foo.real4.15')
         self.assertEqual(len(fbf), 3)
         a = np.array([np.float32(x) / 2 for x in range(45)], 'f')
         a = a.reshape([3, 15])
         print(fbf[0])
-        fbf[0,:] = a[0,:]
+        fbf[0:3] = a[0:3]
+        print(fbf[:])
+        fbf[3:6] = a[0:3]
 
 
 def test():
