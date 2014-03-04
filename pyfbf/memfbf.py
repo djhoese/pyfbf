@@ -410,11 +410,11 @@ class FBF(object):
         return self.data.shape if self.data is not None else None
 
 
-def build( stemname, typename, grouping=None, dirname='.', byteorder='native' ):
+def build( stemname, typename, grouping=None, dirname='.', byteorder='native', writable=True ):
     """
     DEPRECATED: procedural API for creating FBF objects
     """
-    return FBF( stemname, typename, grouping, dirname, byteorder )
+    return FBF( stemname, typename, grouping, dirname, byteorder, writable )
 
 def _one_based_slice(fbf, start, end):
     if start == end == 0:
@@ -431,9 +431,9 @@ def _one_based_slice(fbf, start, end):
 def read( fbf, start=0, end=0 ):
     '''DEPRECATED: legacy API call uses 1-based indexing, so read(1,-1) reads in the whole dataset'''
     if isinstance( fbf, str ):
+        LOG.debug('opening file {0} for read'.format(fbf))
         fbf = FBF(fbf)
     idx = _one_based_slice(fbf, start, end)
-
     return fbf[idx]
 
 
@@ -448,25 +448,18 @@ def extract_indices_to_file( inp, indices, out_file ):
         shouldclose=False
     for r in indices:
         inp[r].tofile(fout)
-    if shouldclose: fout.close()
+    fout.flush()
+    if shouldclose:
+        fout.close()
 
 def write( fbf, idx, data ):
     '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
     The index is a 1-based int (as in Fortran and Matlab).
     Data must be an appropriately shaped and typed numpy array'''
-    # FIXME: can only write in native byte order as far as I can tell.
-    # FIXME: needs to convert to expected format, array order and contiguity, or raise an error on bad content
-    if isinstance( fbf, str ): fbf = FBF(fbf)
-    if ( array_product(data.shape) % fbf.record_elements ) != 0:
-        # FIXME: this should really check the shape and not just that record_elements divides length
-        raise FbfWarning("data incorrectly shaped for write")
-
-    index = min( idx-1, fbf.length() )
-    if index != idx-1:
-        raise FbfWarning('data being written to record %d instead of %d' % (index+1, idx))
-    fbf.file.seek( index * fbf.record_size )
-    data.tofile(fbf.file)
-    fbf.pending_flush = True
+    if isinstance( fbf, str ):
+        fbf = FBF(fbf, writable=True)
+        fbf.open(records=data.shape[0])
+    fbf[idx] = data
     return 1
 
 def block_write( fbf, idx, data ):
@@ -490,15 +483,31 @@ class TestFBF(unittest.TestCase):
     def test_create(self):
         fbf = FBF('foo', 'real4', [15], writable=True)
         fbf.create(records=3)
-        print('shape {0}'.format(repr(fbf.shape)))
+        LOG.info('shape {0}'.format(repr(fbf.shape)))
         self.assertEqual(fbf.path, './foo.real4.15')
         self.assertEqual(len(fbf), 3)
         a = np.array([np.float32(x) / 2 for x in range(45)], 'f')
         a = a.reshape([3, 15])
-        print(fbf[0])
+        LOG.info(fbf[0])
         fbf[0:3] = a[0:3]
-        print(fbf[:])
+        LOG.info(fbf[:])
         fbf[3:6] = a[0:3]
+        os.unlink(fbf.path)
+
+    def test_classic(self):
+        foo = FBF('foo', 'real4', [15], writable=True)
+        foo.create(records=2)
+        self.assertEqual(2,len(foo))
+        a = np.array([float(x) / 2 for x in range(45)], 'f').reshape((3,15))
+        foo[0:3] = a
+        self.assertEqual(3, len(foo))
+        del foo
+        foo = FBF('foo.real4.15')
+        self.assertTrue((foo[0:3]==a).all())
+        with self.assertRaises(IndexError):
+            q = foo[4]
+        self.assertTrue((read(foo.path, 1, -1)==a).all())
+        os.unlink(foo.path)
 
 
 def test():
