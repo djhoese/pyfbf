@@ -214,7 +214,7 @@ def _records_in_file(pathname, record_dtype = None):
     return int(os.stat(pathname).st_size / record_dtype.itemsize)
 
 
-def memmap(path, mode='r', records=1):
+def memmap(path, mode='r', records=None, dtype=None):
     """
     memory-map a FBF file as a numpy.memmap object
     :param path: file to open or create
@@ -222,7 +222,7 @@ def memmap(path, mode='r', records=1):
     :param records: if new file, number of records to create it with
     :return: numpy memmap object
     """
-    dtype = _dtype_from_path(path)
+    dtype = dtype or _dtype_from_path(path)
     exists = os.path.exists(path)
 
     if not exists:
@@ -230,7 +230,7 @@ def memmap(path, mode='r', records=1):
             raise ValueError('{0} does not exist, use "w" mode to create new file'.format(path))
         shape = (records,)
     else:
-        shape = (_records_in_file(path, dtype), )
+        shape = (records or _records_in_file(path, dtype), )
 
     return np.memmap(path, dtype=dtype, mode=mode, shape=shape)
 
@@ -296,7 +296,7 @@ class FBF(object):
         raise NotImplementedError('deprecated operation')
 
 
-    def open( self, mode=None, records=1 ):
+    def open( self, mode=None, records=None ):
         exists = os.path.exists(self.path)
         if mode is None:
             if exists and self.writable:
@@ -307,7 +307,7 @@ class FBF(object):
                 mode = 'w+'
             else:
                 raise ValueError('{0} does not exist, need mode "w" to create it'.format(self.path))
-        self.data = memmap(self.path, mode, records)
+        self.data = memmap(self.path, mode, records=records, dtype=self.dtype)
         return self
 
 
@@ -364,7 +364,7 @@ class FBF(object):
         return _rmax(start, stop)
 
 
-    def _expose_idx(self, idx, reading=True):
+    def _expose_idx(self, idx):
         if self.data is None:
             if os.path.exists(self.path):
                 self.open()
@@ -375,22 +375,25 @@ class FBF(object):
             else:
                 raise IOError('file {0} does not exist'.format(self.path))
         else:
+            expand_to_records = None
             length = _records_in_file(self.path, self.dtype)
-            new_shape = None
             if self.data.shape[0]<length:
-                new_shape = (length,) + self.data.shape[1:]
+                expand_to_records = length
 
             records_required = self._slice_records_required(idx, length)
             if records_required>length:
                 if self.writable:
-                    new_shape = (records_required,) + self.data.shape[1:]
+                    expand_to_records = records_required
                 else:
                     raise IndexError('cannot index beyond record {0}'.format(length))
 
-            if new_shape is not None:
-                LOG.debug('expanding file to shape {0}'.format(repr(new_shape)))
+            if expand_to_records is not None:
+                # FUTURE: find a cleaner way than just opening the file, e.g. repair numpy.memmap.resize
+                LOG.debug('re-opening file to expose {0} records'.format(expand_to_records))
                 self.data.flush()
-                self.data.resize(new_shape)
+                self.data = None
+                self.open(records=expand_to_records)
+                assert(self.data.shape[0]>=expand_to_records)
 
     def __getitem__(self, idx):
         '''obtain records from an FBF file - pass in either an FBF object or an FBF file name.
