@@ -369,14 +369,17 @@ class FBF(object):
         if data is None and sync==True and self._append_fob is not None:
             self._append_fob.flush()
             return self.length()
-        nrecs = self.length()
-        shape = self.shape
-        if (data.shape == self.shape[1:]):
+        file_size = os.stat(self.path).st_size if os.path.exists(self.path) else 0
+        if ((file_size % self.dtype.itemsize)!=0):
+            raise IOError('File {0} has inconsistent size, should be a multiple of record size {1}'.format(self.path, self.dtype.itemsize))
+        nrecs = file_size / self.dtype.itemsize
+        record_shape = self.dtype.shape
+        if (data.shape==record_shape):
             recs_to_write = 1
-        elif (data.shape[1:] == shape[1:]):
+        elif (data.shape[1:]==record_shape):
             recs_to_write = data.shape[0]
         else:
-            raise ValueError('input array to append is not a compatible shape')
+            raise ValueError('input array to append is not a compatible shape ({0})'.format(repr(data.shape)))
         # coerce the data to be in the form we want
         data = np.require(data, dtype=self.dtype.base, requirements='C')
         # FUTURE: can we do this without accessing private self.data._mmap?
@@ -387,7 +390,7 @@ class FBF(object):
         new_nrecs = self.length()
         if sync:
             assert(new_nrecs == nrecs + recs_to_write)
-        return self.length()
+        return os.fstat(self._append_fob.fileno()).st_size / self.dtype.itemsize
 
     def _slice_records_required(self, slob, length=None):
         """
@@ -589,6 +592,7 @@ class TestFBF(unittest.TestCase):
         pass
 
     def test_create(self):
+        LOG.info('create')
         fbf = FBF('foo', 'real4', [15], writable=True)
         fbf.create(records=3)
         LOG.info('shape {0}'.format(repr(fbf.shape)))
@@ -602,7 +606,8 @@ class TestFBF(unittest.TestCase):
         fbf[3:6] = a[0:3]
         os.unlink(fbf.path)
 
-    def test_classic(self):
+    def test_close_open(self):
+        LOG.info('classic')
         foo = FBF('foo', 'real4', [15], writable=True)
         foo.create(records=2)
         self.assertEqual(2, len(foo))
@@ -618,11 +623,15 @@ class TestFBF(unittest.TestCase):
         self.assertTrue((read(foo.path, 1, -1) == a).all())
         os.unlink(foo.path)
 
-    def test_malformed(self):
+    def test_malformed_filenames(self):
+        LOG.info('malformed - check filename parsing')
         with self.assertRaises(ValueError):
             foo = FBF('any.txt')
+        with self.assertRaises(ValueError):
+            foo = FBF('/path/to/my/dog')
 
-    def test_append(self):
+    def test_append_basics(self):
+        LOG.info('append - test basics of append-mode FBF')
         foo = FBF('foo', 'real4', [15], writable=True)
         foo.create(records=2)
         self.assertEqual(2, len(foo))
@@ -634,11 +643,30 @@ class TestFBF(unittest.TestCase):
         self.assertTrue((foo[3:6]==a).all())
         os.unlink(foo.path)
 
+    def test_append_just_real4s(self):
+        LOG.info('append2 - test append-only FBF and simple .real4 handling')
+        foo = FBF('foo', 'real4', writable=True)
+        a = np.array([float(x) / 2 for x in range(45)], np.float64)
+        foo.append(a)
+        nrecs = foo.append(a)
+        self.assertEqual(nrecs, len(a)*2)
+        ar = np.concatenate([a,a])
+        # LOG.debug(ar[:])
+        LOG.debug(repr(foo.dtype))
+        self.assertTrue(foo.data is None)
+        foo.open(mode='r')
+        LOG.info(foo[:])
+        self.assertEqual(len(foo), len(a)*2)
+        boo = np.all(ar==foo[:])
+        LOG.debug(repr(boo))
+        self.assertTrue(boo)
+        os.unlink(foo.path)
 
-def test():
-    logging.basicConfig(level=logging.DEBUG)
+
+def test(debug=False, *args):
+    logging.basicConfig(level=logging.DEBUG if debug else logging.ERROR)
     unittest.main()
 
 
 if __name__ == '__main__':
-    test()
+    test(debug = 'DEBUG' in os.environ)
