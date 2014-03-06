@@ -392,6 +392,18 @@ class FBF(object):
             assert(new_nrecs == nrecs + recs_to_write)
         return os.fstat(self._append_fob.fileno()).st_size / self.dtype.itemsize
 
+    def _mask_records_required(self, mask, length=None):
+        assert(1==len(mask.shape))
+        mask_width = mask.shape[0]
+        assert(mask_width>=self.length())
+        dexes = np.nonzero(mask.ravel())[0]
+        LOG.debug('indices ')
+        return 0 if len(dexes)==0 else dexes[-1] + 1, dexes
+
+    def _indices_records_required(self, indices, length=None):
+        assert(1==len(indices.shape))
+        return np.max(indices.ravel()) + 1, indices
+
     def _slice_records_required(self, slob, length=None):
         """
         Calculate the number of records that the file would need to contain to access the slice or record index.
@@ -429,7 +441,32 @@ class FBF(object):
                 raise ValueError('cannot compare invalid slice')
             return max(start + 1, stop)
 
-        return _rmax(start, stop)
+        return _rmax(start, stop), slob
+
+    def _calc_records_required(self, thing, length=None):
+        """
+        determine the max number of records we need in order to span this index/slice/mask/index-array
+        also return any revised indexing object that may benefit from our calculations
+        :param thing: int, slice, mask array, or index array
+        :param length: length of file to consider against, default is self.length() outcome
+        :return: max-records:int, index-object-to-use
+        """
+        if isinstance(thing, int):
+            return thing+1, thing
+        elif isinstance(thing, slice):
+            return self._slice_records_required(thing, length)
+        elif isinstance(thing, np.ndarray):
+            if thing.dtype.base == np.bool_:
+                LOG.debug('mask array {0}'.format(repr(thing)))
+                return self._mask_records_required(thing, length)
+            else:
+                LOG.debug('index array')
+                return self._indices_records_required(thing, length)
+        elif hasattr(thing, '__iter__'): # FUTURE: better way to do this?
+            LOG.debug('iterable to convert to ndarray and figure out')
+            return self._calc_records_required(np.array(thing), length)
+        else:
+            raise ValueError('do not know how to index on {0}'.format(repr(thing)))
 
     def _expose_idx(self, idx):
         """
@@ -443,7 +480,7 @@ class FBF(object):
             if os.path.exists(self.path):
                 self.open()
             elif self.writable:
-                records_required = self._slice_records_required(idx)
+                records_required, idx = self._calc_records_required(idx)
                 self.open(records=records_required)
                 self.data.flush()
             else:
@@ -454,7 +491,7 @@ class FBF(object):
             if self.data.shape[0] < file_records:
                 expand_to_records = file_records
 
-            records_required = self._slice_records_required(idx, file_records)
+            records_required, idx = self._calc_records_required(idx, file_records)
             if records_required > file_records:
                 if self.writable:
                     expand_to_records = records_required
@@ -468,6 +505,7 @@ class FBF(object):
                 self.data = None
                 self.open(records=expand_to_records)
                 assert (self.data.shape[0] >= expand_to_records)
+        return idx
 
     def __getitem__(self, idx):
         """
@@ -475,7 +513,7 @@ class FBF(object):
         :param idx: record number or slice object for records to access
         :return: numpy array view
         """
-        self._expose_idx(idx)
+        idx = self._expose_idx(idx)
         return self.data[idx]
 
     def __setitem__(self, idx, value):
@@ -484,7 +522,7 @@ class FBF(object):
         :param idx: record number or slice
         :param value: array to assign to the file slice
         """
-        self._expose_idx(idx)
+        idx = self._expose_idx(idx)
         self.data[idx] = value
 
     @property
@@ -589,6 +627,7 @@ FBF.block_write = block_write
 
 class TestFBF(unittest.TestCase):
     def setUp(self):
+        # FUTURE: consolidate test patterns where we can build them into here, then knock them down later
         pass
 
     def test_create(self):
@@ -661,6 +700,30 @@ class TestFBF(unittest.TestCase):
         LOG.debug(repr(boo))
         self.assertTrue(boo)
         os.unlink(foo.path)
+
+    def test_index_array_access(self):
+        foo = FBF('foo', 'real8', [15], writable=True)
+        foo.create(records=6)
+        a = np.array([float(x) / 2 for x in range(45)], np.float64).reshape((3, 15))
+        foo[0:3] = a
+        foo[3:6] = a
+        dexy = [0,3,4]
+        truth = a[[0,0,1]]
+        foodexy = foo[dexy]
+        self.assertTrue((foodexy[:]==truth).all())
+        booly = [False, True, True, False, True, False]
+        foolery = foo[booly]
+        self.assertEqual(foolery.shape, (3,15))
+        foodexy = foo[[1,2,4]]
+        self.assertTrue((foolery==foodexy).all())
+        foodexy = foo[::2]
+        foolery = foo[[0,2,4]]
+        self.assertTrue((foolery==foodexy).all())
+        foodexy = foo[1::2]
+        foolery = foo[[1,3,5]]
+        self.assertTrue((foolery==foodexy).all())
+        os.unlink(foo.path)
+
 
 
 def test(debug=False, *args):
