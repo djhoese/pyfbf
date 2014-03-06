@@ -717,10 +717,10 @@ class TestFBF(unittest.TestCase):
         foodexy = foo[[1,2,4]]
         self.assertTrue((foolery==foodexy).all())
         foodexy = foo[::2]
-        foolery = foo[[0,2,4]]
+        foolery = a[[0,2,1]]
         self.assertTrue((foolery==foodexy).all())
         foodexy = foo[1::2]
-        foolery = foo[[1,3,5]]
+        foolery = a[[1,0,2]]
         self.assertTrue((foolery==foodexy).all())
         os.unlink(foo.path)
 
