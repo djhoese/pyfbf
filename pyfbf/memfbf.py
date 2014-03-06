@@ -251,6 +251,7 @@ class FBF(object):
     dtype = None  # numpy record dtype
     writable = False # True/False whether we're allowed to write to the file
     data = None # when not None, a numpy memmap object representing some or all the file
+    _append_fob = None # when not None, a writable append-only file object
 
     def __init__(self, stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder='native',
                  writable=False):
@@ -354,6 +355,38 @@ class FBF(object):
         return _records_in_file(self.path, self.dtype)
 
     def __len__(self):
+        return self.length()
+
+    def append(self, data, sync=True):
+        """
+        Append one or more records to the end of a writable FBF.
+        :param data: array with one or more records in a compatible dtype
+        :param sync: when True, forces data to be immediately flushed to the disk so it is represented in file length
+        :return: new number of records in the file
+        """
+        if not self.writable:
+            raise AssertionError('cannot append to read-only FBF objects')
+        if data is None and sync==True and self._append_fob is not None:
+            self._append_fob.flush()
+            return self.length()
+        nrecs = self.length()
+        shape = self.shape
+        if (data.shape == self.shape[1:]):
+            recs_to_write = 1
+        elif (data.shape[1:] == shape[1:]):
+            recs_to_write = data.shape[0]
+        else:
+            raise ValueError('input array to append is not a compatible shape')
+        # coerce the data to be in the form we want
+        data = np.require(data, dtype=self.dtype.base, requirements='C')
+        # FUTURE: can we do this without accessing private self.data._mmap?
+        self._append_fob = self._append_fob or open(self.path, 'ab')
+        data.tofile(self._append_fob)
+        if sync:
+            self._append_fob.flush()
+        new_nrecs = self.length()
+        if sync:
+            assert(new_nrecs == nrecs + recs_to_write)
         return self.length()
 
     def _slice_records_required(self, slob, length=None):
@@ -588,6 +621,18 @@ class TestFBF(unittest.TestCase):
     def test_malformed(self):
         with self.assertRaises(ValueError):
             foo = FBF('any.txt')
+
+    def test_append(self):
+        foo = FBF('foo', 'real4', [15], writable=True)
+        foo.create(records=2)
+        self.assertEqual(2, len(foo))
+        a = np.array([float(x) / 2 for x in range(45)], np.float64).reshape((3, 15))
+        foo[0:3] = a
+        self.assertEqual(3, len(foo))
+        self.assertEqual(foo.stemname, 'foo')
+        foo.append(a)
+        self.assertTrue((foo[3:6]==a).all())
+        os.unlink(foo.path)
 
 
 def test():
