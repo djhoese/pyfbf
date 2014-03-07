@@ -1,4 +1,4 @@
 # __all__ = ['workspace', 'numfbf']
 
-from pyfbf.workspace import Workspace
-from pyfbf.numfbf import *
+from .workspace import Workspace
+from .memfbf import *
