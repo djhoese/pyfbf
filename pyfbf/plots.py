@@ -1,16 +1,19 @@
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
-from matplotlib.figure import Figure
 from matplotlib.pyplot import figure
 
 import numpy as np
 import ifg.plot.widgets as wdgt
-from keoni.fbf import Workspace
+from .workspace import Workspace
+
+# FIXME: Don't magically use globals. Especially ones that require QtApplications
+TB = None
 
 def inset(l,b,w,h,r):
     return l+w*r, b+h*r*(w/h), w-w*r*2, h-h*r*2*(w/h)
 
-TB = wdgt.IFGToolbox(title="Toolbox")
+def create_base_window():
+    global TB
+    TB = wdgt.IFGToolbox(title="Toolbox")
+    return TB
 
 def compare(name, x, y1,y2, records, filter=None, initial_r = 0):
     """ build a GUI with dual plots above and delta plot below

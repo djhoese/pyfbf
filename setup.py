@@ -34,6 +34,10 @@ setup(
     zip_safe=False,
     install_requires=[
         'numpy'
-        ]
+    ],
+    test_suite='pyfbf',
+    tests_require=[
+        'mock'
+    ]
 )
 
