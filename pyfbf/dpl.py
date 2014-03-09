@@ -136,17 +136,17 @@ def main():
                   filename_filter=fnf,
                   rolling=args.rolling)()
 
-    print "Ctrl+C to exit early"
+    print("Ctrl+C to exit early")
     try:
         for F in f2d:
-            print '\n=== record %d~%d' % (F.first_record, F.last_record)
+            print('\n=== record {:d}~{:d}'.format(F.first_record, F.last_record))
             for stem in args.stems:
-                print stem
-                print F.get(stem, None)
+                print(stem)
+                print(F.get(stem, None))
                 time.sleep(args.delay)
             sys.stdout.flush()
     except KeyboardInterrupt:
-        print "Keyboard interrupt caught, exiting early..."
+        print("Keyboard interrupt caught, exiting early...")
 
     return 0
 

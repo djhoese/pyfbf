@@ -3,8 +3,6 @@
 """
 
 from pyfbf.dpl import fbf2dpl
-from pyfbf.memfbf import dtype_from_path
-import mock
 import numpy
 
 import os
@@ -24,7 +22,7 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 20)
         self.assertListEqual([x["fake1"][0] for x in all_frames], list(fbf_arr))
 
@@ -40,10 +38,10 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 4)
         self.assertListEqual([list(x["fake1"]) for x in all_frames],
-                             [range(1, 6), range(6, 11), range(11, 16), range(16, 21)])
+                             [list(range(1, 6)), list(range(6, 11)), list(range(11, 16)), list(range(16, 21))])
 
         os.remove(fbf_fn)
 
@@ -71,7 +69,7 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 20)
         self.assertListEqual([x["fake1"][0] for x in all_frames], list(fbf_arr))
 
@@ -87,10 +85,10 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 16)
         for idx, item in enumerate(all_frames):
-            self.assertListEqual(list(item["fake1"]), range(idx+1, idx+6))
+            self.assertListEqual(list(item["fake1"]), list(range(idx+1, idx+6)))
 
         os.remove(fbf_fn)
 
@@ -105,7 +103,7 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 4)
         self.assertListEqual([list(x["fake1"]) for x in all_frames],
                              [[18, 19, 20, 1, 2],
@@ -127,9 +125,9 @@ class TestFBF2DPL(unittest.TestCase):
         all_frames = list(frame_gen)
 
         for item in all_frames:
-            self.assertEqual(item.keys(), ["fake1"])
+            self.assertEqual(list(item.keys()), ["fake1"])
         self.assertEqual(len(all_frames), 16)
-        check_list = range(1, 21) + range(1, 21) + range(1, 21)  # 'simulate' the circular buffer
+        check_list = list(range(1, 21)) + list(range(1, 21)) + list(range(1, 21))  # 'simulate' the circular buffer
         for idx, item in enumerate(all_frames):
             # Subtract 1 because record 18 is index 17
             # Add 5 because we want a total of 5 elements in each frame
@@ -149,7 +147,7 @@ class TestFBF2DPL(unittest.TestCase):
 
         self.assertListEqual(all_frames, [])
         # for item in all_frames:
-        #     self.assertEqual(item.keys(), ["fake1"])
+        #     self.assertEqual(list(item.keys()), ["fake1"])
         # self.assertEqual(len(all_frames), 3)
         # self.assertListEqual([list(x["fake1"]) for x in all_frames],
         #                      [[18, 19, 20, 1, 2],

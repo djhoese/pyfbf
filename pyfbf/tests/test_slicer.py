@@ -4,13 +4,19 @@
 
 from pyfbf.slicer import FBFSlicer
 from pyfbf.memfbf import dtype_from_path
-import mock
 import numpy
 
 import os
 import sys
 import logging
 import unittest
+
+try:
+    # python 3 includes mock
+    from unittest import mock
+except ImportError:
+    import mock
+
 
 FAKE_FBF_FNS = [
     "fake1.real4",
@@ -71,7 +77,10 @@ class TestSlicer(unittest.TestCase):
         finally:
             self._remove_fake_fbfs()
 
-        self.assertItemsEqual(frame.keys(), ["fake1", "fake2", "fake3", "fake4"])
+        if hasattr(self, "assertItemsEqual"):
+            self.assertItemsEqual(list(frame.keys()), ["fake1", "fake2", "fake3", "fake4"])
+        else:
+            self.assertCountEqual(list(frame.keys()), ["fake1", "fake2", "fake3", "fake4"])
         self.assertEqual(frame["fake1"].shape, (15,))
         self.assertEqual(frame["fake2"].shape, (15, 5))
         self.assertEqual(frame["fake3"].shape, (15,))
@@ -87,7 +96,10 @@ class TestSlicer(unittest.TestCase):
         finally:
             self._remove_fake_fbfs()
 
-        self.assertItemsEqual(frame.keys(), ["fake1", "fake2", "fake3", "fake4"])
+        if hasattr(self, "assertItemsEqual"):
+            self.assertItemsEqual(list(frame.keys()), ["fake1", "fake2", "fake3", "fake4"])
+        else:
+            self.assertCountEqual(list(frame.keys()), ["fake1", "fake2", "fake3", "fake4"])
         self.assertEqual(frame["fake1"].shape, (1,))
         self.assertEqual(frame["fake2"].shape, (1, 5))
         self.assertEqual(frame["fake3"].shape, (1,))
@@ -103,7 +115,7 @@ class TestSlicer(unittest.TestCase):
         frame = slicer(38, 45)
         os.remove(fbf_fn)
 
-        self.assertListEqual(frame.keys(), ["fake_cb"])
+        self.assertListEqual(list(frame.keys()), ["fake_cb"])
         #                                             38, 39, 40,41,42,43,44,45
         self.assertListEqual(list(frame["fake_cb"]), [18, 19, 20, 1, 2, 3, 4, 5])
 

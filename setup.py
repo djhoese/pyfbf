@@ -15,10 +15,15 @@ easy_install -d $HOME/Library/Python -vi http://larch.ssec.wisc.edu/eggs/repos p
 
 """
 __docformat__ = "restructuredtext en"
+import sys
 from setuptools import setup, find_packages
 
 classifiers = ""
-version = '0.1'
+version = '0.1.0'
+
+tests_require = []
+if sys.version_info[0] == 2:
+    tests_require.append("mock")
 
 setup(
     name='pyfbf',
@@ -36,8 +41,6 @@ setup(
         'numpy'
     ],
     test_suite='pyfbf',
-    tests_require=[
-        'mock'
-    ]
+    tests_require=tests_require
 )
 
