@@ -526,6 +526,12 @@ class FBF(object):
         self.data[idx] = value
 
     @property
+    def ndim(self):
+        if self.data is None:
+            self.open()
+        return self.data.ndim
+
+    @property
     def shape(self):
         """
         Shape of the attached memory map, which may be smaller than the available data in the file if file has grown.
@@ -637,6 +643,7 @@ class TestFBF(unittest.TestCase):
         LOG.info('shape {0}'.format(repr(fbf.shape)))
         self.assertEqual(fbf.path, './foo.real4.15')
         self.assertEqual(len(fbf), 3)
+        self.assertEqual(fbf.ndim, 2)
         a = np.array([np.float32(x) / 2 for x in range(45)], 'f')
         a = a.reshape([3, 15])
         LOG.info(fbf[0])
