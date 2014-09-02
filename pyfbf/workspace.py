@@ -3,7 +3,7 @@ Flat binary workspace object
 
 """
 
-import glob, unittest
+import glob
 from .memfbf import *
 
 
@@ -68,17 +68,6 @@ class Workspace(object):
         raise NotImplementedError('Not Yet Implemented')
 
 
-TEST_WORKSPACE = '/tmp/test_workspace'
-
-
-class TestWorkspace(unittest.TestCase):
-    def test_simple(self):
-        self.assertTrue(os.path.exists(TEST_WORKSPACE))
-        from pprint import pprint
-
-        ws = Workspace(TEST_WORKSPACE)
-        pprint(ws.variables())
-
 def main():
     from sys import argv
 
@@ -88,7 +77,7 @@ def main():
 
         pprint(dict((x, str(y).split('\n')) for (x, y) in q.variables().items()))
     else:
-        unittest.main()
+        print("Usage: workspace.py <workspace-dir>")
 
 
 if __name__ == '__main__':
