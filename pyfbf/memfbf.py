@@ -1,13 +1,14 @@
-'''
+"""
 $Id$
 Flat Binary Format python utilities, recoded for speed using numpy.
 Ray Garcia <rayg@ssec.wisc.edu>
-'''
+"""
 
-import os, sys, logging, unittest
+import os
+import sys
+import logging
 import numpy as np
 import re
-from functools import reduce
 
 LOG = logging.getLogger(__name__)
 
@@ -127,41 +128,6 @@ def dtype_from_path(pathname):
     """
     dn, fn = os.path.split(pathname)
     return _dtype_from_regex_groups(**RE_FILENAME.match(fn).groupdict())
-
-
-class TestBasics(unittest.TestCase):
-    def setUp(self):
-        pass
-
-    def test_suffix(self):
-        sfx = suffix_from_dtype(np.float64, (10, 20))
-        self.assertEqual(sfx, 'real8.20.10')
-
-    def test_array2suffix(self):
-        t = np.dtype(('f8', (20, 10)))
-        a = np.zeros((5,), dtype=t)
-        sfx = suffix_from_dtype(a)
-        self.assertEqual(sfx, 'real8.10.20.5')
-        sfx = suffix_from_dtype(a, multiple_records=True)
-        self.assertEqual(sfx, 'real8.10.20')
-
-    def test_dtype(self):
-        m = RE_FILENAME.match('foo.real8.10.20')
-        dt = _dtype_from_regex_groups(**m.groupdict())
-        a = np.zeros((5,), dt)
-        self.assertEqual(a.shape, (5, 20, 10))
-        self.assertEqual(a.dtype, np.float64)
-
-    def test_more(self):
-        q = np.dtype(('f8', (20, 10)))
-        a = np.zeros((5,), dtype=q)
-        fn = filename('foo', a, multiple_records=True)
-        self.assertEqual('foo.real8.10.20', fn)
-        t = dtype_from_path('/path/to/myfile.REAL8.20.10')
-        fn = filename('foo', t, (15,))
-        self.assertEqual('foo.REAL8.20.10', fn)
-        fn = filename('foo', np.int16, (30, 90))
-        self.assertEqual('foo.int2.90.30', fn)
 
 
 def _construct_from_options(stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder=None):
@@ -607,9 +573,9 @@ def extract_indices_to_file(inp, indices, out_file):
 
 
 def write(fbf, idx, data):
-    '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
+    """DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
     The index is a 1-based int (as in Fortran and Matlab).
-    Data must be an appropriately shaped and typed numpy array'''
+    Data must be an appropriately shaped and typed numpy array"""
     if isinstance(fbf, str):
         fbf = FBF(fbf, writable=True)
         fbf.open(records=data.shape[0])
