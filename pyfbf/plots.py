@@ -1,16 +1,22 @@
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
-from matplotlib.figure import Figure
-from matplotlib.pyplot import figure
+import sys
+if sys.version_info[0] == 3:
+    print("WARNING: The plots module is not python 3 compatible, sorry")
+else:
+    import ifg.plot.widgets as wdgt  # FIXME: Transfer required logic to here and make it python3 compatible
+    from matplotlib.pyplot import figure  # matplotlib does not support python3.4 at time of writing
 
 import numpy as np
-import ifg.plot.widgets as wdgt
-from keoni.fbf import Workspace
+
+# FIXME: Don't magically use globals. Especially ones that require QtApplications
+TB = None
 
 def inset(l,b,w,h,r):
     return l+w*r, b+h*r*(w/h), w-w*r*2, h-h*r*2*(w/h)
 
-TB = wdgt.IFGToolbox(title="Toolbox")
+def create_base_window():
+    global TB
+    TB = wdgt.IFGToolbox(title="Toolbox")
+    return TB
 
 def compare(name, x, y1,y2, records, filter=None, initial_r = 0):
     """ build a GUI with dual plots above and delta plot below
@@ -66,9 +72,8 @@ def _iterable(x): return hasattr(x,'__iter__')
 def follow(records, yfuncs, axes=None, canvas=None, name="Record", callbacks=[], autoscale=True):
     """bind a slider to an axis, updating lines using a callable
     e.g.
-    from keoni.fbf import Workspace
+    from .workspace import Workspace
     W = Workspace('.')
-    import keoni.fbf.plots as gui
     reim = lambda re,im,n: abs(re[n] + 1j*im[n])
     fhy = lambda r: abs(W.CalHotRefLWReal[r] + 1j* W.CalHotRefLWImag[r])
     fsy = lambda r: abs(W.CalSceneLWReal[r] + 1j* W.CalSceneLWImag[r])
@@ -77,7 +82,7 @@ def follow(records, yfuncs, axes=None, canvas=None, name="Record", callbacks=[],
     subplot(311); pah=plot(fhy(0))
     subplot(312); pas=plot(fsy(0))
     subplot(313); pac=plot(fcy(0))    
-    gui.follow(list(range(len(W.CalSceneLWReal))), [fhy,fsy,fcy])
+    follow(list(range(len(W.CalSceneLWReal))), [fhy,fsy,fcy])
     """
     from matplotlib.pyplot import gcf, gca
     if not _iterable(yfuncs):
@@ -166,15 +171,16 @@ def browse(x, y, r=None):
 
 
 # run in ipython --pylab=qt
-def test1(Wdir=None, Xdir=None, name='BT', wnum_name='Wavenumber'):
-    W = Workspace(Wdir or '/Volumes/data/tmp/sh110909p3o4pr110910')
-    X = Workspace(Xdir or '/Volumes/data/tmp/sh110909p3o4pr110920')
-    wnum = getattr(X,wnum_name)[0]
-    a = getattr(W, name)
-    b = getattr(X, name)
-    nW = len(a)
-    nX = len(b)
-    assert(nX==nW)
-    recs = np.arange(nW, dtype=int)
-    f = compare(name, wnum, a, b, recs)
-    return W,X,f
+# def test1(Wdir=None, Xdir=None, name='BT', wnum_name='Wavenumber'):
+#     from .workspace import Workspace
+#     W = Workspace(Wdir or '/Volumes/data/tmp/sh110909p3o4pr110910')
+#     X = Workspace(Xdir or '/Volumes/data/tmp/sh110909p3o4pr110920')
+#     wnum = getattr(X,wnum_name)[0]
+#     a = getattr(W, name)
+#     b = getattr(X, name)
+#     nW = len(a)
+#     nX = len(b)
+#     assert(nX==nW)
+#     recs = np.arange(nW, dtype=int)
+#     f = compare(name, wnum, a, b, recs)
+#     return W,X,f
