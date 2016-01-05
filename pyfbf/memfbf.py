@@ -515,6 +515,18 @@ class FBF(object):
         m = RE_FILENAME.match(fn)
         return m.groupdict()['stem']
 
+    @property
+    def filename(self):
+        return os.path.split(self.path)[-1]
+
+    @property
+    def dirname(self):
+        return os.path.split(self.path)[0]
+
+    @property
+    def pathname(self):
+        return self.path
+
 
 def build(stemname, typename, grouping=None, dirname='.', byteorder='native', writable=True):
     """
