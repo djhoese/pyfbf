@@ -19,7 +19,7 @@ import sys
 from setuptools import setup, find_packages
 
 classifiers = ""
-version = '0.1.0'
+version = '0.1.1'
 
 tests_require = []
 if sys.version_info[0] == 2:
@@ -41,6 +41,9 @@ setup(
         'numpy'
     ],
     test_suite='pyfbf',
-    tests_require=tests_require
+    tests_require=tests_require,
+    extras_require={
+        'plot': ['matplotlib']
+    }
 )
 

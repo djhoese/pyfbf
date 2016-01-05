@@ -62,6 +62,7 @@ class TestSlicer(unittest.TestCase):
 
         self.assertDictEqual(frame, {})
 
+    @mock.patch("pyfbf.slicer.glob", lambda pat: ["fake_file1.txt"])
     def test_bad_filter(self):
         def fake_filter(fn):
             raise ValueError("Fake Exception")

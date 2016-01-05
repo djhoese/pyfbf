@@ -1,13 +1,14 @@
-'''
+"""
 $Id$
 Flat Binary Format python utilities, recoded for speed using numpy.
 Ray Garcia <rayg@ssec.wisc.edu>
-'''
+"""
 
-import os, sys, logging, unittest
+import os
+import sys
+import logging
 import numpy as np
 import re
-from functools import reduce
 
 LOG = logging.getLogger(__name__)
 
@@ -106,8 +107,10 @@ def filename(stem, dtype, shape=None, multiple_records=False):
     return stem + '.' + suffix
 
 
-BYTE_ORDER_LITTLE = ('<', str.lower)
-BYTE_ORDER_BIG = ('>', str.upper)
+# BYTE_ORDER_LITTLE = ('<', str.lower)
+# BYTE_ORDER_BIG = ('>', str.upper)
+BYTE_ORDER_LITTLE = ('<', lambda x: x.lower())
+BYTE_ORDER_BIG = ('>', lambda x: x.upper())
 BYTE_ORDER_NATIVE = BYTE_ORDER_BIG if sys.byteorder == 'big' else BYTE_ORDER_LITTLE
 BYTE_ORDER_TABLE = {
     'big': BYTE_ORDER_BIG,
@@ -125,41 +128,6 @@ def dtype_from_path(pathname):
     """
     dn, fn = os.path.split(pathname)
     return _dtype_from_regex_groups(**RE_FILENAME.match(fn).groupdict())
-
-
-class TestBasics(unittest.TestCase):
-    def setUp(self):
-        pass
-
-    def test_suffix(self):
-        sfx = suffix_from_dtype(np.float64, (10, 20))
-        self.assertEqual(sfx, 'real8.20.10')
-
-    def test_array2suffix(self):
-        t = np.dtype(('f8', (20, 10)))
-        a = np.zeros((5,), dtype=t)
-        sfx = suffix_from_dtype(a)
-        self.assertEqual(sfx, 'real8.10.20.5')
-        sfx = suffix_from_dtype(a, multiple_records=True)
-        self.assertEqual(sfx, 'real8.10.20')
-
-    def test_dtype(self):
-        m = RE_FILENAME.match('foo.real8.10.20')
-        dt = _dtype_from_regex_groups(**m.groupdict())
-        a = np.zeros((5,), dt)
-        self.assertEqual(a.shape, (5, 20, 10))
-        self.assertEqual(a.dtype, np.float64)
-
-    def test_more(self):
-        q = np.dtype(('f8', (20, 10)))
-        a = np.zeros((5,), dtype=q)
-        fn = filename('foo', a, multiple_records=True)
-        self.assertEqual('foo.real8.10.20', fn)
-        t = dtype_from_path('/path/to/myfile.REAL8.20.10')
-        fn = filename('foo', t, (15,))
-        self.assertEqual('foo.REAL8.20.10', fn)
-        fn = filename('foo', np.int16, (30, 90))
-        self.assertEqual('foo.int2.90.30', fn)
 
 
 def _construct_from_options(stem_or_filename=None, typename=None, grouping=None, dirname=None, byteorder=None):
@@ -526,6 +494,12 @@ class FBF(object):
         self.data[idx] = value
 
     @property
+    def ndim(self):
+        if self.data is None:
+            self.open()
+        return self.data.ndim
+
+    @property
     def shape(self):
         """
         Shape of the attached memory map, which may be smaller than the available data in the file if file has grown.
@@ -540,6 +514,18 @@ class FBF(object):
         dn,fn = os.path.split(self.path)
         m = RE_FILENAME.match(fn)
         return m.groupdict()['stem']
+
+    @property
+    def filename(self):
+        return os.path.split(self.path)[-1]
+
+    @property
+    def dirname(self):
+        return os.path.split(self.path)[0]
+
+    @property
+    def pathname(self):
+        return self.path
 
 
 def build(stemname, typename, grouping=None, dirname='.', byteorder='native', writable=True):
@@ -599,9 +585,9 @@ def extract_indices_to_file(inp, indices, out_file):
 
 
 def write(fbf, idx, data):
-    '''DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
+    """DEPRECATED: write records to an FBF file - pass in either an FBF object or an FBF file name
     The index is a 1-based int (as in Fortran and Matlab).
-    Data must be an appropriately shaped and typed numpy array'''
+    Data must be an appropriately shaped and typed numpy array"""
     if isinstance(fbf, str):
         fbf = FBF(fbf, writable=True)
         fbf.open(records=data.shape[0])
@@ -624,112 +610,3 @@ FBF.read = read
 FBF.write = write
 FBF.block_write = block_write
 
-
-class TestFBF(unittest.TestCase):
-    def setUp(self):
-        # FUTURE: consolidate test patterns where we can build them into here, then knock them down later
-        pass
-
-    def test_create(self):
-        LOG.info('create')
-        fbf = FBF('foo', 'real4', [15], writable=True)
-        fbf.create(records=3)
-        LOG.info('shape {0}'.format(repr(fbf.shape)))
-        self.assertEqual(fbf.path, './foo.real4.15')
-        self.assertEqual(len(fbf), 3)
-        a = np.array([np.float32(x) / 2 for x in range(45)], 'f')
-        a = a.reshape([3, 15])
-        LOG.info(fbf[0])
-        fbf[0:3] = a[0:3]
-        LOG.info(fbf[:])
-        fbf[3:6] = a[0:3]
-        os.unlink(fbf.path)
-
-    def test_close_open(self):
-        LOG.info('classic')
-        foo = FBF('foo', 'real4', [15], writable=True)
-        foo.create(records=2)
-        self.assertEqual(2, len(foo))
-        a = np.array([float(x) / 2 for x in range(45)], 'f').reshape((3, 15))
-        foo[0:3] = a
-        self.assertEqual(3, len(foo))
-        self.assertEqual(foo.stemname, 'foo')
-        del foo
-        foo = FBF('foo.real4.15')
-        self.assertTrue((foo[0:3] == a).all())
-        with self.assertRaises(IndexError):
-            q = foo[4]
-        self.assertTrue((read(foo.path, 1, -1) == a).all())
-        os.unlink(foo.path)
-
-    def test_malformed_filenames(self):
-        LOG.info('malformed - check filename parsing')
-        with self.assertRaises(ValueError):
-            foo = FBF('any.txt')
-        with self.assertRaises(ValueError):
-            foo = FBF('/path/to/my/dog')
-
-    def test_append_basics(self):
-        LOG.info('append - test basics of append-mode FBF')
-        foo = FBF('foo', 'real4', [15], writable=True)
-        foo.create(records=2)
-        self.assertEqual(2, len(foo))
-        a = np.array([float(x) / 2 for x in range(45)], np.float64).reshape((3, 15))
-        foo[0:3] = a
-        self.assertEqual(3, len(foo))
-        self.assertEqual(foo.stemname, 'foo')
-        foo.append(a)
-        self.assertTrue((foo[3:6]==a).all())
-        os.unlink(foo.path)
-
-    def test_append_just_real4s(self):
-        LOG.info('append2 - test append-only FBF and simple .real4 handling')
-        foo = FBF('foo', 'real4', writable=True)
-        a = np.array([float(x) / 2 for x in range(45)], np.float64)
-        foo.append(a)
-        nrecs = foo.append(a)
-        self.assertEqual(nrecs, len(a)*2)
-        ar = np.concatenate([a,a])
-        # LOG.debug(ar[:])
-        LOG.debug(repr(foo.dtype))
-        self.assertTrue(foo.data is None)
-        foo.open(mode='r')
-        LOG.info(foo[:])
-        self.assertEqual(len(foo), len(a)*2)
-        boo = np.all(ar==foo[:])
-        LOG.debug(repr(boo))
-        self.assertTrue(boo)
-        os.unlink(foo.path)
-
-    def test_index_array_access(self):
-        foo = FBF('foo', 'real8', [15], writable=True)
-        foo.create(records=6)
-        a = np.array([float(x) / 2 for x in range(45)], np.float64).reshape((3, 15))
-        foo[0:3] = a
-        foo[3:6] = a
-        dexy = [0,3,4]
-        truth = a[[0,0,1]]
-        foodexy = foo[dexy]
-        self.assertTrue((foodexy[:]==truth).all())
-        booly = [False, True, True, False, True, False]
-        foolery = foo[booly]
-        self.assertEqual(foolery.shape, (3,15))
-        foodexy = foo[[1,2,4]]
-        self.assertTrue((foolery==foodexy).all())
-        foodexy = foo[::2]
-        foolery = a[[0,2,1]]
-        self.assertTrue((foolery==foodexy).all())
-        foodexy = foo[1::2]
-        foolery = a[[1,0,2]]
-        self.assertTrue((foolery==foodexy).all())
-        os.unlink(foo.path)
-
-
-
-def test(debug=False, *args):
-    logging.basicConfig(level=logging.DEBUG if debug else logging.ERROR)
-    unittest.main()
-
-
-if __name__ == '__main__':
-    test(debug = 'DEBUG' in os.environ)
