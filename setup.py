@@ -19,7 +19,7 @@ import sys
 from setuptools import setup, find_packages
 
 classifiers = ""
-version = '0.1.1'
+version = '0.2.0'
 
 tests_require = []
 if sys.version_info[0] == 2:
