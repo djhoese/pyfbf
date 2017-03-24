@@ -46,7 +46,7 @@ def _relevant_variables(V, minrecs):
             yield k
 
 
-def concatenate(paths, tail_variables, dry_run=False):
+def concatenate(paths, tail_variables, output='.', dry_run=False):
     """
     build master variable list of variables and their record counts for each workspace in paths
     for each workspace in paths
@@ -58,6 +58,8 @@ def concatenate(paths, tail_variables, dry_run=False):
         concatenate data to a variable in the cwd, truncating to minrecs for that workspace
     :param paths: workspace paths to concatenate, in order
     :param final_stems: variable names which determine the minimum number of records
+    :param output: optional output directory to create (if needed) and write to
+    :param dry_run: run without creating output files
     :return: total number of records
     """
     Ws = [Workspace(p) for p in paths]  # workspaces
@@ -67,6 +69,8 @@ def concatenate(paths, tail_variables, dry_run=False):
     common_variable_names = reduce(lambda a, b: a & b, relevant_variable_names)
     LOG.info('variables of interest: ' + ', '.join(sorted(common_variable_names)))
     LOG.info('transfer from workspaces: ' + ', '.join('%s: %d' % (w.path, n) for (w,n) in zip(Ws,Ns)))
+    if not os.path.isdir(output) and not dry_run:
+        os.makedirs(output)
     for var_name in sorted(common_variable_names):
         fob = None
         LOG.debug(var_name)
@@ -77,7 +81,7 @@ def concatenate(paths, tail_variables, dry_run=False):
             if fob is None:
                 filename = os.path.split(v.path)[-1]
                 if not dry_run:
-                    fob = open(filename, 'ab')
+                    fob = open(os.path.join(output, filename), 'ab')
             data = v[:n]
             if not dry_run:
                 data.tofile(fob)
@@ -114,13 +118,19 @@ def _debug(type, value, tb):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PURPOSE",
+        description="concatenate multiple FBF workspaces into one, for variables matching length criteria",
         epilog="",
         fromfile_prefix_chars='@')
     parser.add_argument('-v', '--verbose', dest='verbosity', action="count", default=0,
                         help='each occurrence increases verbosity 1 level through ERROR-WARNING-INFO-DEBUG')
     parser.add_argument('-d', '--debug', dest='debug', action='store_true',
                         help="enable interactive PDB debugger on exception")
+    parser.add_argument('-t', '--dry-run', dest='dryrun', action='store_true',
+                        help="walk through but do not write data files")
+    parser.add_argument('-r', '--records', dest='records', action='append',
+                        help="specify variable name to use for identify records in a given workspace")
+    parser.add_argument('-o', '--output', dest='output',
+                        help="optional output directory to write to (create if needed)")
     # http://docs.python.org/2.7/library/argparse.html#nargs
     # parser.add_argument('--stuff', nargs='5', dest='my_stuff',
     #                    help="one or more random things")
@@ -139,6 +149,8 @@ def main():
     levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
     logging.basicConfig(level=levels[min(3, args.verbosity)])
 
+    n_written = concatenate(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
+    print('Wrote %d records.' % n_written)
 
     for pn in args.inputs:
         pass
