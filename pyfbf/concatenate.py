@@ -62,7 +62,7 @@ def concatenate_fbf(paths, tail_variables, output='.', dry_run=False):
     :param final_stems: variable names which determine the minimum number of records
     :param output: optional output directory to create (if needed) and write to
     :param dry_run: run without creating output files
-    :return: total number of records
+    :return: total number of records, list of (workspace,num-records) pairs
     """
     Ws = [Workspace(p) for p in paths]  # workspaces
     Vs = [w.variables() for w in Ws]  # variables for workspaces
@@ -92,7 +92,7 @@ def concatenate_fbf(paths, tail_variables, output='.', dry_run=False):
             fob.close()
     total = int(np.sum(Ns))
     LOG.info("total resulting records: %d" % total)
-    return total
+    return total, list(zip(Ws, Ns))
 
 
 def _glob_patterns(path, patterns, is_suffix=False):
@@ -163,6 +163,33 @@ def concatenate_text(paths, suffixes, output='.', dry_run=False):
     return len(fns)
 
 
+def recalc_base_time_offset(WsNs, output='.', dry_run=False):
+    """
+    handle base_time + time_offset merge by reconstructing them against first workspace's base_time
+    :param WsNs: workspaces and number-of-records-per for base_time.int4 and time_offset.real8, from concatenate_fbf
+    :param output: directory to write to
+    :param dry_run: whether or not to actually write
+    :return:
+    """
+    # base time value
+    if not WsNs:
+        return 0
+    base_time = WsNs[0][0]['base_time'][0]
+    # calculate individual component times
+    times = [w['time_offset'][:n] + float(w['base_time'][0]) for w,n in WsNs]
+    time_offset = np.concatenate(times) - float(base_time)
+    time_offset = np.require(time_offset, dtype=np.float64)
+    base_time = np.array([base_time], dtype=np.int32)
+    if not os.path.isdir(output) and not dry_run:
+        os.makedirs(output)
+    if not dry_run:
+        with open(os.path.join(output, 'base_time.int4'), 'wb') as fbt:
+            base_time.tofile(fbt)
+        with open(os.path.join(output, 'time_offset.real8'), 'wb') as fto:
+            time_offset.tofile(fto)
+    return len(time_offset)
+
+
 class tests(unittest.TestCase):
     data_file = os.environ.get('TEST_DATA', os.path.expanduser("~/Data/test_files/thing.dat"))
 
@@ -171,11 +198,12 @@ class tests(unittest.TestCase):
 
     def test_rdrs(self):
         from glob import glob
-        dirnames = list(glob('rdr20170321T??????sdr*'))
+        dirnames = list(glob(os.environ.get('TEST_INPUT', 'rdr20170321T??????sdr*')))
         dirnames.sort()
-        concatenate_fbf(dirnames, ['zfliLW', 'zfliMW', 'zfliSW'], dry_run=True)
+        _, WsNs = concatenate_fbf(dirnames, ['zfliLW', 'zfliMW', 'zfliSW'], dry_run=True)
         merge_any(dirnames, ['Wavenumber', 'bin', 'Makefile'], dry_run=True)
         concatenate_text(dirnames, ['txt', '.info'], dry_run=True)
+        recalc_base_time_offset(WsNs, dry_run=True)
 
 
 def _debug(type, value, tb):
@@ -188,12 +216,16 @@ def _debug(type, value, tb):
         # …then start the debugger in post-mortem mode.
         pdb.post_mortem(tb)  # more “modern”
 
-DESCRIPTION = """Concatenate multiple FBF workspaces into one, for variables matching length criteria.
+DESCRIPTION = r"""Concatenate multiple FBF workspaces into one, for variables matching length criteria.
 Example:
-python -m pyfbf.concatenate -vv -o . --text txt --text info \\
-    --any Wavenumber --any bin --any Makefile \\
-    --records zfliLW --records zfliMW --records zfliSW \\
-    rdr20170321T??????sdr????????T??????
+/home/rayg/.conda/envs/shis/bin/python -m pyfbf.concatenate $* \
+    -vvv -o sh170321 --base-time --text txt --text info \
+    --any Wavenumber --any bin --any config --any Makefile \
+    --records SpectrumLW_CalRad_Resampled \
+    --records SpectrumMW_CalRad_Resampled \
+    --records SpectrumSW_CalRad_Resampled \
+    rdr20170321T??????sdr????????T?????? \
+    rdr20170322T??????sdr????????T??????
 
 """
 
@@ -214,6 +246,8 @@ def main():
                         help="specify workspace filename suffixes to concatenate or unify (e.g. txt, info)")
     parser.add_argument('-A', '--any', dest='any', action='append',
                         help="specify workspace file patterns to pick any of, if they exist everywhere (e.g. Wavenumber)")
+    parser.add_argument('-B', '--base-time', dest='base_time_offset', action='store_true',
+                        help="recalculate time_offset.real8 based on first workspace base_time.int4")
     parser.add_argument('-o', '--output', dest='output',
                         help="optional output directory to write to (create if needed)")
     # http://docs.python.org/2.7/library/argparse.html#nargs
@@ -234,10 +268,12 @@ def main():
     levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
     logging.basicConfig(level=levels[min(3, args.verbosity)])
 
-    n_written = concatenate_fbf(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
+    n_written, WsNs = concatenate_fbf(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
     print('Wrote %d FBF records.' % n_written)
     merge_any(args.inputs, args.any, output=args.output, dry_run=args.dryrun)
     concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun)
+    if args.base_time_offset:
+        recalc_base_time_offset(WsNs, args.output, dry_run=args.dryrun)
 
     return 0
 
