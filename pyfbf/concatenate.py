@@ -190,7 +190,7 @@ DESCRIPTION = """Concatenate multiple FBF workspaces into one, for variables mat
 Example:
 python -m pyfbf.concatenate -vv -o . --text txt --text info \\
     --any Wavenumber --any bin --any Makefile \\
-    --records zfliLW --records -zfliMW --records zfliSW \\
+    --records zfliLW --records zfliMW --records zfliSW \\
     rdr20170321T??????sdr????????T??????
 
 """
