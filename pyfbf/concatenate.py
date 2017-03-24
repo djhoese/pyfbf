@@ -180,6 +180,7 @@ def recalc_base_time_offset(WsNs, output='.', dry_run=False):
     time_offset = np.concatenate(times) - float(base_time)
     time_offset = np.require(time_offset, dtype=np.float64)
     base_time = np.array([base_time], dtype=np.int32)
+    LOG.info('writing recalculated time_offset starting from base_time in %s' % WsNs[0][0].path)
     if not os.path.isdir(output) and not dry_run:
         os.makedirs(output)
     if not dry_run:
@@ -201,9 +202,9 @@ class tests(unittest.TestCase):
         dirnames = list(glob(os.environ.get('TEST_INPUT', 'rdr20170321T??????sdr*')))
         dirnames.sort()
         _, WsNs = concatenate_fbf(dirnames, ['zfliLW', 'zfliMW', 'zfliSW'], dry_run=True)
+        recalc_base_time_offset(WsNs, dry_run=True)
         merge_any(dirnames, ['Wavenumber', 'bin', 'Makefile'], dry_run=True)
         concatenate_text(dirnames, ['txt', '.info'], dry_run=True)
-        recalc_base_time_offset(WsNs, dry_run=True)
 
 
 def _debug(type, value, tb):
@@ -269,11 +270,11 @@ def main():
     logging.basicConfig(level=levels[min(3, args.verbosity)])
 
     n_written, WsNs = concatenate_fbf(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
-    print('Wrote %d FBF records.' % n_written)
-    merge_any(args.inputs, args.any, output=args.output, dry_run=args.dryrun)
-    concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun)
     if args.base_time_offset:
         recalc_base_time_offset(WsNs, args.output, dry_run=args.dryrun)
+    merge_any(args.inputs, args.any, output=args.output, dry_run=args.dryrun)
+    concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun)
+    print('Wrote %d FBF records.' % n_written)
 
     return 0
 
