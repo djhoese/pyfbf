@@ -113,9 +113,9 @@ def merge_any(paths, patterns, output='.', dry_run=False):
     """
     Ts = [set(_glob_patterns(path, patterns)) for path in paths]
     fns = reduce(lambda a,b: a & b, Ts)
-    LOG.info('will merge first available binary file for: %s' % repr(list(sorted(fns))))
+    LOG.info('will merge last available binary file for: %s' % repr(list(sorted(fns))))
     for fn in fns:
-        src = os.path.join(paths[0], fn)
+        src = os.path.join(paths[-1], fn)
         dst = os.path.join(output, fn)
         if not os.path.isdir(output) and not dry_run:
             os.makedirs(output)
@@ -146,10 +146,10 @@ def concatenate_text(paths, suffixes, output='.', dry_run=False):
         if not os.path.isdir(output) and not dry_run:
             os.makedirs(output)
         if all_the_same:
-            LOG.info('copying uniform text for %s' % fn)
+            LOG.info('copying last uniform text for %s' % fn)
             if not dry_run:
                 with open(ofn, 'wt') as fp:
-                    fp.write(txts[0])
+                    fp.write(txts[-1])
         else:
             LOG.info('concatenating non-identical files for %s' % fn)
             if not dry_run:
@@ -233,10 +233,9 @@ def main():
     logging.basicConfig(level=levels[min(3, args.verbosity)])
 
     n_written = concatenate_fbf(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
-    print('Wrote %d records.' % n_written)
-
-    for pn in args.inputs:
-        pass
+    print('Wrote %d FBF records.' % n_written)
+    merge_any(args.inputs, args.any, output=args.output, dry_run=args.dryrun)
+    concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun))
 
     return 0
 
