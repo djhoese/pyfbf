@@ -235,7 +235,7 @@ def main():
     n_written = concatenate_fbf(args.inputs, args.records, output=args.output, dry_run=args.dryrun)
     print('Wrote %d FBF records.' % n_written)
     merge_any(args.inputs, args.any, output=args.output, dry_run=args.dryrun)
-    concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun))
+    concatenate_text(args.inputs, args.text, output=args.output, dry_run=args.dryrun)
 
     return 0
 
