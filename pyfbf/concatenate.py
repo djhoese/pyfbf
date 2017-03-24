@@ -88,6 +88,8 @@ def concatenate_fbf(paths, tail_variables, output='.', dry_run=False):
             if not dry_run:
                 data.tofile(fob)
             v.close()
+        if fob is not None:
+            fob.close()
     total = int(np.sum(Ns))
     LOG.info("total resulting records: %d" % total)
     return total
