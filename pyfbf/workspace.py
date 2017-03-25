@@ -12,14 +12,14 @@ class Workspace(object):
     A workspace provides a convenient way to access a directory of FBF files as workspace.['name'] or workspace.name syntax.
     """
     _vars = None
-    _dir = None
+    path = None
 
     def __init__(self, dir='.'):
         """
         Initialize a workspace with a directory, capturing the initial list of variables in the workspace.
         :param dir: path to a directory to scan
         """
-        self._dir = dir
+        self.path = dir
         self._vars = dict(self._scan_vars())
 
     def var(self, name):
@@ -31,7 +31,7 @@ class Workspace(object):
         v = self._vars.get(name, None)
         if v is not None:
             return v
-        g = glob.glob(os.path.join(self._dir, (name + '.*') if '.' not in name else name))
+        g = glob.glob(os.path.join(self.path, (name + '.*') if '.' not in name else name))
         if len(g) == 1:
             fbf = FBF(g[0])
             fbf.open()
@@ -40,9 +40,9 @@ class Workspace(object):
         raise AttributeError("{0:s} not in workspace".format(name))
 
     def _scan_vars(self):
-        for path in os.listdir(self._dir):
+        for path in os.listdir(self.path):
             try:
-                x = FBF(os.path.join(self._dir, path))
+                x = FBF(os.path.join(self.path, path))
                 yield x.stemname, x
             except ValueError:
                 pass
